@@ -1,5 +1,5 @@
-﻿import React from 'react';
-import { Animated, Easing, SafeAreaView, StyleSheet, Text } from 'react-native';
+import React from 'react';
+import { Animated, Easing, SafeAreaView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -109,6 +109,7 @@ function createDefaultSnapshot() {
     clean: 80,
     energy: 80,
     isSleeping: false,
+    isWashing: false,
     xp: 0,
     coins: 0,
     inventory: {},
@@ -478,6 +479,162 @@ export default function App() {
       return next;
     });
   }, [showToast]);
+
+  const openGame = React.useCallback((key) => {
+    if (!key) return;
+    if (key === 'tap' && energy < ENERGY_COST_TAP) {
+      showToast('Zu wenig Energie fuer Tap-Spiel');
+      return;
+    }
+    if (key === 'catch' && energy < ENERGY_COST_CATCH) {
+      showToast('Zu wenig Energie fuer Catch Game');
+      return;
+    }
+    setActiveGame(key);
+    if (key === 'tap') {
+      setEnergy((prev) => clampStat(prev - ENERGY_COST_TAP));
+    } else if (key === 'catch') {
+      setEnergy((prev) => clampStat(prev - ENERGY_COST_CATCH));
+    }
+  }, [energy, showToast]);
+
+  const closeActiveGame = React.useCallback(() => {
+    setActiveGame(null);
+  }, []);
+
+  const handleGameReward = React.useCallback((key, score) => {
+    const safeScore = Math.max(0, Math.floor(Number(score) || 0));
+    let funGain = 0;
+    let xpGain = 0;
+    let coinGain = 0;
+    if (key === 'tap') {
+      funGain = safeScore * FUN_GAIN_TAP_PER_TAP;
+      xpGain = XP_PLAY + Math.floor(safeScore / 3);
+      coinGain = COIN_PLAY + safeScore * COIN_MINIGAME_PER_POINT;
+    } else if (key === 'reaction') {
+      funGain = Math.min(25, Math.floor(safeScore / 5));
+      xpGain = XP_PLAY + Math.floor(safeScore / 15);
+      coinGain = Math.floor(safeScore / 20);
+    } else if (key === 'catch') {
+      funGain = FUN_GAIN_CATCH;
+      xpGain = XP_PLAY + XP_CATCH_REWARD + Math.floor(safeScore / 2);
+      coinGain = COIN_CATCH_REWARD + safeScore * COIN_MINIGAME_PER_POINT;
+    }
+    if (funGain) setFun((prev) => clampStat(prev + funGain));
+    if (xpGain) setXp((prev) => prev + xpGain);
+    if (coinGain) setCoins((prev) => Math.max(0, prev + coinGain));
+    pushEmotion('play', 1400);
+    bump();
+    if (coinGain || xpGain) {
+      showToast(`Belohnung: +${Math.max(0, Math.floor(coinGain))} Coins, +${xpGain} XP`);
+    } else {
+      showToast('Gut gespielt!');
+    }
+  }, [pushEmotion, bump, showToast]);
+
+  const handleCasinoDelta = React.useCallback((delta) => {
+    const amount = Math.floor(Number(delta) || 0);
+    if (!amount) return;
+    setCoins((prev) => Math.max(0, prev + amount));
+    showToast(amount > 0 ? `+${amount} Coins` : `${amount} Coins`);
+  }, [showToast]);
+
+  const handleBuyItem = React.useCallback((item, options = {}) => {
+    if (!item) return;
+    setCoins((prevCoins) => {
+      if (prevCoins < item.price) {
+        showToast('Nicht genug Coins');
+        return prevCoins;
+      }
+      const nextCoins = prevCoins - item.price;
+      setInventory((prev) => addToInventory(prev, item.id, 1));
+      if (options.equip) {
+        setEquipped((prev) => ({ ...prev, [item.slot]: item.id }));
+      }
+      showToast(`${item.name} gekauft`);
+      return nextCoins;
+    });
+  }, [showToast]);
+
+  const handleEquip = React.useCallback((slot, itemId) => {
+    if (!slot) return;
+    if (itemId && !inventory[itemId]) return;
+    setEquipped((prev) => ({ ...prev, [slot]: itemId || null }));
+  }, [inventory]);
+
+  const handleUnequip = React.useCallback((slot) => {
+    if (!slot) return;
+    setEquipped((prev) => ({ ...prev, [slot]: null }));
+  }, []);
+
+  const handleVisitFriend = React.useCallback(async ({ friend, visitor }) => {
+    if (!friend) return;
+    const payload = {
+      id: friend.id,
+      kind: friend.kind,
+      name: friend.name || friend.displayName || 'Freund',
+      code: friend.code || null,
+      xp: Math.max(0, Math.floor(friend.xp || 0)),
+      petType: friend.petType || null,
+      equipped: friend.equipped && typeof friend.equipped === 'object' ? friend.equipped : {},
+      visitor,
+    };
+    setVisitingFriend(payload);
+    showToast(`Zu Besuch bei ${payload.name}`);
+    if (cloudSession && payload.kind === 'cloud' && payload.id) {
+      try {
+        await startFriendVisit(payload.id, visitor);
+      } catch {}
+    }
+  }, [cloudSession, showToast]);
+
+  const handleEndVisit = React.useCallback(async () => {
+    const target = visitingFriend;
+    if (!target) return;
+    setVisitingFriend(null);
+    showToast('Besuch beendet');
+    if (cloudSession && target.kind === 'cloud' && target.id) {
+      try {
+        await endFriendVisit(target.id);
+      } catch {}
+    }
+  }, [visitingFriend, cloudSession, showToast]);
+
+  const handleFriendRemoved = React.useCallback((friend) => {
+    if (friend && friend.kind === 'cloud' && cloudSession) {
+      endFriendVisitAsHost(friend.id).catch(() => {});
+    }
+    showToast('Freund entfernt');
+  }, [cloudSession, showToast]);
+
+  const handleSettingsChange = React.useCallback((changes) => {
+    if (!changes) return;
+    if (Object.prototype.hasOwnProperty.call(changes, 'sound')) {
+      setSoundEnabled(!!changes.sound);
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, 'haptics')) {
+      setHapticsEnabled(!!changes.haptics);
+    }
+  }, []);
+
+  const handleResetPet = React.useCallback(() => {
+    const fresh = createDefaultSnapshot();
+    fresh.sound = soundEnabled;
+    fresh.haptics = hapticsEnabled;
+    applySnapshotToState(fresh);
+    latestSnapshotRef.current = fresh;
+    scheduleSave(fresh);
+    setPetSelectOpen(true);
+    showToast('Haustier wurde zurueckgesetzt');
+  }, [applySnapshotToState, soundEnabled, hapticsEnabled, scheduleSave, showToast]);
+
+  const handlePetSelected = React.useCallback((choice) => {
+    setPetType(choice);
+    setEquipped(cloneEquipped());
+    setPetSelectOpen(false);
+    showToast('Tier ausgewaehlt');
+  }, [showToast]);
+
   const refreshAccount = React.useCallback(async () => {
     try {
       const info = await ensureAccount();
@@ -544,17 +701,289 @@ export default function App() {
     isSleepingRef.current = isSleeping;
   }, [isSleeping]);
 
+  React.useEffect(() => {
+    const interval = setInterval(()=> {
+      const sleeping = isSleepingRef.current;
+      const rates = sleeping ? DECAY_SLEEP : DECAY_AWAKE;
+      const minutes = (TICK_INTERVAL_MS / 1000) / 60;
+      setHunger((prev) => clampStat(prev - (rates.hunger || 0) * minutes));
+      setFun((prev) => clampStat(prev - (rates.fun || 0) * minutes));
+      setClean((prev) => clampStat(prev - (rates.clean || 0) * minutes));
+      setEnergy((prev) => clampStat(prev - (rates.energy || 0) * minutes));
+    }, TICK_INTERVAL_MS);
+    tickIntervalRef.current = interval;
+    return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => {
+    const snapshot = updateSnapshotRef();
+    scheduleSave(snapshot);
+  }, [updateSnapshotRef, scheduleSave, hunger, fun, clean, energy, isSleeping, xp, coins, inventory, petType, equipped, soundEnabled, hapticsEnabled]);
+
+  // Cloud visitor subscription
+  React.useEffect(() => {
+    if (!cloudSession) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const visit = await fetchActiveVisitForHost();
+        if (!cancelled) setIncomingVisitor(normalizeVisit(visit));
+      } catch {}
+    })();
+
+    const channel = subscribeToFriendVisits(cloudSession.user.id, async () => {
+      try {
+        const visit = await fetchActiveVisitForHost();
+        if (!cancelled) setIncomingVisitor(normalizeVisit(visit));
+      } catch {}
+    });
+
+    return () => {
+      cancelled = true;
+      channel?.unsubscribe?.();
+    };
+  }, [cloudSession]);
+
+  React.useEffect(() => {
+    return () => {
+      if (lastSaveTimeoutRef.current) clearTimeout(lastSaveTimeoutRef.current);
+      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
+      if (emotionTimeoutRef.current) clearTimeout(emotionTimeoutRef.current);
+      persistSnapshot(latestSnapshotRef.current);
+    };
+  }, [persistSnapshot]);
+
+  const levelInfo = React.useMemo(() => getLevelInfo(xp), [xp]);
+  const mood = React.useMemo(() => moodFromStats(hunger, fun, clean, energy), [hunger, fun, clean, energy]);
+  const overlayOpen = shopOpen || inventoryOpen || gamesMenuOpen || Boolean(activeGame) || friendsOpen || settingsOpen || petSelectOpen;
+  const primaryUiVisible = !overlayOpen;
+  const canAct = primaryUiVisible && !isSleeping && !isWashing;
+  const visitorForPet = React.useMemo(() => {
+    if (!incomingVisitor) return null;
+    return {
+      name: incomingVisitor.name,
+      petType: incomingVisitor.petType || 'seestern',
+      equipped: incomingVisitor.equipped || {},
+    };
+  }, [incomingVisitor]);
+
+  const selfSnapshot = React.useMemo(() => ({
+    name: account?.name || '',
+    petType: petType || null,
+    equipped: { ...equipped },
+    xp,
+  }), [account, petType, equipped, xp]);
+
+  if (!ready) {
+    return (
+      <SafeAreaView style={styles.loading}>
+        <StatusBar style="light" />
+        <Background />
+        <Text style={styles.loadingText}>Lade...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
       <Background />
-      <Text style={styles.placeholder}>Grundlogik wiederhergestellt - UI folgt.</Text>
+
+      {/* HEADER */}
+      <View style={styles.header} pointerEvents={primaryUiVisible ? 'auto' : 'none'}>
+        <LevelHeader level={levelInfo.level} progress={levelInfo.progress} xp={xp} coins={coins} onPressProfile={refreshAccount} />
+      </View>
+
+      {/* STATS */}
+      <View style={styles.stats} pointerEvents={primaryUiVisible ? 'auto' : 'none'}>
+        <StatBar label="Hunger" value={hunger} icon="🍗" />
+        <StatBar label="Spaß" value={fun} icon="🎉" />
+        <StatBar label="Sauber" value={clean} icon="🫧" />
+        <StatBar label="Energie" value={energy} icon="⚡" />
+      </View>
+
+      {/* PET AREA */}
+      <View style={styles.petWrap}>
+        <Animated.View style={{ transform: [{ scale: petScale }] }}>
+          <PetArea
+            ref={petAreaRef}
+            style={styles.petArea}
+            petType={petType}
+            equipped={equipped}
+            mood={mood}
+            isSleeping={isSleeping}
+            isWashing={isWashing}
+            visitor={visitorForPet}
+            onLayout={handlePetAreaLayout}
+            onPress={canAct ? handleInteract : undefined}
+            onSoapDragStart={canAct ? handleSoapDragStart : undefined}
+            onSoapDragMove={canAct ? handleSoapDragMove : undefined}
+            onSoapDragEnd={handleSoapDragEnd}
+            emotion={emotion}
+          />
+        </Animated.View>
+
+        {/* Wash bubbles overlay */}
+        {washBubbles.map((b) => (
+          <Animated.View
+            key={b.id}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: b.x - b.size / 2,
+              top: b.y - b.size / 2,
+              width: b.size,
+              height: b.size,
+              borderRadius: b.size / 2,
+              backgroundColor: 'rgba(255,255,255,0.25)',
+              opacity: b.opacity,
+              transform: [{ scale: b.scale }],
+            }}
+          />
+        ))}
+
+        {/* Food flyers overlay */}
+        {foodFlyers.map((f) => (
+          <Animated.Text
+            key={f.id}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              bottom: 16,
+              left: '50%',
+              transform: [{ translateX: f.x }, { translateY: f.y }, { scale: f.scale }],
+              opacity: f.opacity,
+              fontSize: 24,
+            }}
+          >
+            {String.fromCodePoint(f.emoji)}
+          </Animated.Text>
+        ))}
+      </View>
+
+      {/* ACTION DOCK + QUICK BUTTONS */}
+      <View style={styles.dock} pointerEvents={primaryUiVisible ? 'auto' : 'none'}>
+        <ActionDock
+          onFeed={handleFeed}
+          onSleepToggle={handleToggleSleep}
+          onWashStart={handleSoapDragStart}
+          onOpenGames={() => setGamesMenuOpen(true)}
+          disabled={!canAct}
+        />
+      </View>
+
+      <View style={styles.quickRow} pointerEvents={primaryUiVisible ? 'auto' : 'none'}>
+        <ShopButton coins={coins} onPress={() => setShopOpen(true)} />
+        <InventoryButton onPress={() => setInventoryOpen(true)} />
+        <GameButton onPress={() => setGamesMenuOpen(true)} />
+        <FriendsButton onPress={() => setFriendsOpen(true)} hasIncoming={!!incomingVisitor} />
+        <Pressable style={styles.settingsBtn} onPress={() => setSettingsOpen(true)}>
+          <Text style={styles.settingsTxt}>⚙️</Text>
+        </Pressable>
+      </View>
+
+      {/* TOAST */}
+      <Animated.View pointerEvents="none" style={[styles.toast, { opacity: toastOpacity }]}> 
+        <Text style={styles.toastText}>{toastMessage}</Text>
+      </Animated.View>
+
+      {/* OVERLAYS */}
+      {shopOpen && (
+        <ShopScreen
+          visible={shopOpen}
+          coins={coins}
+          inventory={inventory}
+          equipped={equipped}
+          onBuy={handleBuyItem}
+          onEquip={handleEquip}
+          onUnequip={handleUnequip}
+          onClose={() => setShopOpen(false)}
+        />
+      )}
+
+      {inventoryOpen && (
+        <InventoryScreen
+          visible={inventoryOpen}
+          inventory={inventory}
+          equipped={equipped}
+          onEquip={handleEquip}
+          onUnequip={handleUnequip}
+          onClose={() => setInventoryOpen(false)}
+        />
+      )}
+
+      {gamesMenuOpen && !activeGame && (
+        <GamesMenu
+          visible={gamesMenuOpen}
+          onSelect={(k) => (k === 'casino' ? setActiveGame('casino') : openGame(k))}
+          onClose={() => setGamesMenuOpen(false)}
+        />
+      )}
+
+      {activeGame === 'tap' && (
+        <TapGameScreen onClose={closeActiveGame} onFinish={(score) => { handleGameReward('tap', score); closeActiveGame(); }} />
+      )}
+      {activeGame === 'reaction' && (
+        <ReactionGameScreen onClose={closeActiveGame} onFinish={(score) => { handleGameReward('reaction', score); closeActiveGame(); }} />
+      )}
+      {activeGame === 'catch' && (
+        <CatchGameScreen onClose={closeActiveGame} onFinish={(score) => { handleGameReward('catch', score); closeActiveGame(); }} />
+      )}
+      {activeGame === 'casino' && (
+        <CasinoScreen onClose={closeActiveGame} onDelta={handleCasinoDelta} />
+      )}
+
+      {friendsOpen && (
+        <FriendsScreen
+          visible={friendsOpen}
+          onClose={() => setFriendsOpen(false)}
+          onVisit={handleVisitFriend}
+          onEndVisit={handleEndVisit}
+          onFriendRemoved={handleFriendRemoved}
+          visitingFriend={visitingFriend}
+          selfSnapshot={selfSnapshot}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsScreen
+          visible={settingsOpen}
+          sound={soundEnabled}
+          haptics={hapticsEnabled}
+          onChange={handleSettingsChange}
+          onResetPet={handleResetPet}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {petSelectOpen && (
+        <PetSelectScreen visible={petSelectOpen} onSelect={handlePetSelected} />
+      )}
+
+      {/* VISITOR BANNER */}
+      {incomingVisitor && primaryUiVisible && (
+        <View style={styles.visitorBanner}>
+          <Text style={styles.visitorText}>👋 {incomingVisitor.name} besucht dich gerade</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F172A' },
-  placeholder: { color: '#F8FAFC', fontSize: 16, fontWeight: '700', paddingHorizontal: 24, textAlign: 'center' },
+  safe: { flex: 1, backgroundColor: '#0F172A' },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0F172A' },
+  loadingText: { color: '#F8FAFC', fontSize: 16, fontWeight: '700', paddingHorizontal: 24, textAlign: 'center' },
+  header: { position: 'absolute', top: 8, left: 12, right: 12 },
+  stats: { position: 'absolute', top: 64, left: 12, right: 12, gap: 8 },
+  petWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  petArea: { width: '100%', height: '100%' },
+  dock: { position: 'absolute', left: 0, right: 0, bottom: 88, alignItems: 'center' },
+  quickRow: { position: 'absolute', left: 12, right: 12, bottom: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  settingsBtn: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 14 },
+  settingsTxt: { fontSize: 18, color: '#FFF' },
+  toast: { position: 'absolute', bottom: 160, left: 24, right: 24, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, backgroundColor: 'rgba(15,23,42,0.85)', alignItems: 'center' },
+  toastText: { color: '#E2E8F0', fontWeight: '600' },
+  visitorBanner: { position: 'absolute', top: 36, alignSelf: 'center', backgroundColor: 'rgba(15,23,42,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  visitorText: { color: '#E2E8F0', fontWeight: '600' },
 });
-
