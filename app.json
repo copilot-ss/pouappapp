@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "PouAppApp",
+    "slug": "PouAppApp",
+    "scheme": "pouappapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.simon.pouappapp"
+    },
+    "extra": {
+      "SUPABASE_URL": "",
+      "SUPABASE_ANON_KEY": "",
+      "eas": {
+        "projectId": "42b70811-2a07-49b5-8aac-4ee56e5918e7"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "jsx": "react-native",
+    "allowJs": true,
+    "checkJs": false,
+    "target": "esnext",
+    "moduleResolution": "node",
+    "lib": ["esnext"],
+    "skipLibCheck": true
+  },
+  "exclude": ["node_modules"]
+}
+
