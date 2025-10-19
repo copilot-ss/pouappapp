@@ -233,6 +233,7 @@ export default function ShopScreen({
           source={DOOR_ANIMATION}
           autoPlay
           loop={false}
+          resizeMode="cover"
           style={styles.doorLottie}
           onAnimationFinish={handleDoorFinish}
         />
@@ -426,7 +427,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 6,
   },
-  doorLottie: { width: 320, height: 320 },
+  doorLottie: { width: '100%', height: '100%' },
   headerWrap: {
     paddingHorizontal: 24,
     paddingBottom: 16,

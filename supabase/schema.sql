@@ -11,6 +11,24 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+create or replace function public.prevent_display_name_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if coalesce(old.display_name, '') <> '' and old.display_name is distinct from new.display_name then
+    raise exception 'display_name_locked';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_prevent_display_name_change on public.profiles;
+create trigger trg_prevent_display_name_change
+before update of display_name on public.profiles
+for each row
+execute function public.prevent_display_name_change();
+
 -- Friend requests table
 do $$
 begin

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { hslToHex, lerpHue } from '../lib/color';
 
 function rainbowHueForLevel(level) {
@@ -7,7 +7,7 @@ function rainbowHueForLevel(level) {
   return ((level - 1) * 60) % 360; // 0,60,120,180,240,300, ...
 }
 
-export default function LevelHeader({ levelInfo }) {
+export default function LevelHeader({ levelInfo, onPress }) {
   const { level, percent } = levelInfo || { level: 1, percent: 0 };
   const t = Math.max(0, Math.min(1, (percent || 0) / 100));
   const h0 = rainbowHueForLevel(level);
@@ -18,8 +18,8 @@ export default function LevelHeader({ levelInfo }) {
   const ringWidth = 2 + Math.min(8, Math.floor(level / 5));
   const borderStyle = level >= 10 ? 'dashed' : 'solid';
 
-  return (
-    <View style={styles.wrap}>
+  const content = (
+    <>
       <View style={[styles.circle, { borderColor: ringColor, borderWidth: ringWidth, borderStyle }]}> 
         <Text style={styles.level}>{level}</Text>
       </View>
@@ -28,8 +28,23 @@ export default function LevelHeader({ levelInfo }) {
           <View style={[styles.progressInner, { width: `${Math.round(percent)}%`, backgroundColor: barColor }]} />
         </View>
       </View>
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={styles.wrap}
+        hitSlop={12}
+        android_ripple={{ color: 'rgba(255,255,255,0.25)', borderless: false }}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.wrap}>{content}</View>;
 }
 
 const styles = StyleSheet.create({

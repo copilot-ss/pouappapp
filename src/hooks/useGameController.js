@@ -47,6 +47,7 @@ export default function useGameController() {
   const [gamesMenuOpen, setGamesMenuOpen] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [visitingFriend, setVisitingFriend] = useState(null);
   const [incomingVisitor, setIncomingVisitor] = useState(null);
   const [petType, setPetType] = useState(null);
@@ -649,14 +650,19 @@ export default function useGameController() {
       }
     };
     sync();
-    const channel = subscribeToFriendVisits(hostId, (payload) => {
-      if (!active) return;
-      if (payload.eventType === 'DELETE') {
-        setIncomingVisitor(null);
-      } else {
-        setIncomingVisitor(mapVisitRow(payload.new));
-      }
-    });
+    let channel = null;
+    try {
+      channel = subscribeToFriendVisits(hostId, (payload) => {
+        if (!active) return;
+        if (payload.eventType === 'DELETE') {
+          setIncomingVisitor(null);
+        } else {
+          setIncomingVisitor(mapVisitRow(payload.new));
+        }
+      });
+    } catch (error) {
+      console.warn('subscribeToFriendVisits failed', error);
+    }
     return () => {
       active = false;
       if (channel) {
@@ -1094,6 +1100,20 @@ export default function useGameController() {
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snap)).catch(() => {});
     });
   }, []);
+  const selfSnapshot = useMemo(
+    () => ({
+      hunger,
+      fun,
+      clean,
+      energy,
+      xp,
+      coins,
+      petType,
+      equipped,
+    }),
+    [coins, clean, energy, equipped, fun, hunger, petType, xp],
+  );
+
   return {
     hunger,
     fun,
@@ -1116,6 +1136,8 @@ export default function useGameController() {
     setSelectedGame,
     friendsOpen,
     setFriendsOpen,
+    profileOpen,
+    setProfileOpen,
     visitingFriend,
     incomingVisitor,
     petType,
@@ -1167,5 +1189,6 @@ export default function useGameController() {
     updateSettings,
     resetPet,
     selectPet,
+    selfSnapshot,
   };
 }

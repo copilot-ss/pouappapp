@@ -1,7 +1,14 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Switch } from 'react-native';
 
-export default function SettingsScreen({ open, onClose, sound, haptics, onChange, onResetPet }) {
+export default function SettingsScreen({
+  open,
+  onClose,
+  sound,
+  haptics,
+  onChange,
+  onResetPet,
+}) {
   if (!open) return null;
   return (
     <View style={styles.screen} pointerEvents="auto">
@@ -22,7 +29,7 @@ export default function SettingsScreen({ open, onClose, sound, haptics, onChange
         </View>
         <View style={[styles.row, { justifyContent: 'flex-start' }]}>
           <Pressable style={styles.resetBtn} onPress={onResetPet}>
-            <Text style={styles.resetText}>Tier zurücksetzen</Text>
+            <Text style={styles.resetText}>Tier zurǬcksetzen</Text>
           </Pressable>
         </View>
       </View>
@@ -31,15 +38,48 @@ export default function SettingsScreen({ open, onClose, sound, haptics, onChange
 }
 
 const styles = StyleSheet.create({
-  screen: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#FFFFFF', zIndex: 120, elevation: 12 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 24, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  screen: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    zIndex: 120,
+    elevation: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
   title: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  closeBtn: { width: 40, height: 40, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  closeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
   closeX: { fontSize: 28, color: '#111827', fontWeight: '900' },
   content: { paddingHorizontal: 16, paddingTop: 12, gap: 14 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 },
   label: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  resetBtn: { backgroundColor: '#FEE2E2', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5' },
+  resetBtn: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
   resetText: { color: '#991B1B', fontWeight: '800' },
 });
-

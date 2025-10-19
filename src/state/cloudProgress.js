@@ -9,15 +9,23 @@ export async function fetchCloudProgress() {
   if (!cloudProgressAvailable()) return null;
   const session = await getSession();
   if (!session) return null;
-  const { data, error } = await supabase
-    .from('user_progress')
-    .select('user_id,hunger,fun,clean,energy,xp,coins,pet_type,inventory,equipped,is_sleeping,saved_at,updated_at')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-  if (error && error.code !== 'PGRST116') {
+  try {
+    const { data, error } = await supabase
+      .from('user_progress')
+      .select('user_id,hunger,fun,clean,energy,xp,coins,pet_type,inventory,equipped,is_sleeping,saved_at,updated_at')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+    return data || null;
+  } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    if (message.includes('Network request failed')) {
+      return null;
+    }
     throw error;
   }
-  return data || null;
 }
 
 export async function upsertCloudProgress(snapshot) {
@@ -39,20 +47,28 @@ export async function upsertCloudProgress(snapshot) {
     saved_at: snapshot?.savedAt ? new Date(snapshot.savedAt).toISOString() : new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase
-    .from('user_progress')
-    .upsert(payload, { onConflict: 'user_id' });
-  if (error) throw error;
+  try {
+    const { error } = await supabase
+      .from('user_progress')
+      .upsert(payload, { onConflict: 'user_id' });
+    if (error) throw error;
 
-  const { error: profileErr } = await supabase
-    .from('profiles')
-    .update({
-      pet_type: payload.pet_type,
-      xp: payload.xp,
-      equipped: payload.equipped,
-      last_seen: payload.updated_at,
-    })
-    .eq('user_id', session.user.id);
-  if (profileErr && profileErr.code !== '42703') throw profileErr;
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .update({
+        pet_type: payload.pet_type,
+        xp: payload.xp,
+        equipped: payload.equipped,
+        last_seen: payload.updated_at,
+      })
+      .eq('user_id', session.user.id);
+    if (profileErr && profileErr.code !== '42703') throw profileErr;
+  } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    if (message.includes('Network request failed')) {
+      return;
+    }
+    throw error;
+  }
 }
 

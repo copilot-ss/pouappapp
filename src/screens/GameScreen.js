@@ -22,6 +22,7 @@ import FriendsScreen from '../components/Friends/FriendsScreen';
 import PetSelectScreen from '../components/PetSelectScreen';
 import SettingsScreen from '../components/Settings/SettingsScreen';
 import OutfitPreview from '../components/OutfitPreview';
+import ProfileScreen from '../components/Profile/ProfileScreen';
 import { FEED_COST } from '../lib/constants';
 
 const SOAP_ICON = require('../../assets/ui/soap.png');
@@ -33,6 +34,7 @@ export default function GameScreen({ controller }) {
     fun,
     clean,
     energy,
+    xp,
     coins,
     shopOpen,
     setShopOpen,
@@ -46,6 +48,8 @@ export default function GameScreen({ controller }) {
     setSelectedGame,
     friendsOpen,
     setFriendsOpen,
+    profileOpen,
+    setProfileOpen,
     visitingFriend,
     incomingVisitor,
     petType,
@@ -93,13 +97,14 @@ export default function GameScreen({ controller }) {
     selectPet,
     petAreaRef,
     mainRef,
+    selfSnapshot,
   } = controller;
 
   return (
     <View style={styles.container}>
       <Background />
       <View style={styles.header}>
-        <LevelHeader levelInfo={levelInfo} />
+        <LevelHeader levelInfo={levelInfo} onPress={() => setProfileOpen(true)} />
         <View style={styles.headerRight}>
           {!shopOpen && <CoinsInline coins={coins} />}
           <Pressable
@@ -228,6 +233,17 @@ export default function GameScreen({ controller }) {
         onClose={() => setFriendsOpen(false)}
         onVisitFriend={handleVisitFriend}
         onFriendRemoved={handleFriendRemoved}
+        onOpenProfile={() => setProfileOpen(true)}
+        selfSnapshot={selfSnapshot}
+      />
+      <ProfileScreen
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        levelInfo={levelInfo}
+        xp={xp}
+        coins={coins}
+        petType={petType}
+        selfSnapshot={selfSnapshot}
       />
       <GamesMenu
         open={gamesMenuOpen}

@@ -40,8 +40,16 @@ export function cloudAvailable() {
 
 export async function getSession() {
   if (!cloudAvailable()) return null;
-  const { data } = await supabase.auth.getSession();
-  return data?.session || null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data?.session || null;
+  } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    if (message.includes('Network request failed')) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function signInEmailPassword(email, password) {
@@ -94,10 +102,32 @@ export async function updateDisplayName(name) {
   const session = await getSession();
   if (!session) throw new Error('not_authenticated');
   const uid = session.user.id;
+  const trimmed = (name || '').trim();
+  if (!trimmed) {
+    const err = new Error('display_name_required');
+    err.code = 'display_name_required';
+    throw err;
+  }
+  const existingRows = await selectProfileWithFallback((q) => q.eq('user_id', uid).limit(1));
+  const existing = existingRows && existingRows.length > 0 ? normalizeProfileRow(existingRows[0]) : null;
+  if (!existing) {
+    const err = new Error('profile_not_found');
+    err.code = 'profile_not_found';
+    throw err;
+  }
+  if (existing.display_name) {
+    const current = String(existing.display_name).trim();
+    if (current.length > 0) {
+      const err = new Error('display_name_locked');
+      err.code = 'display_name_locked';
+      err.currentDisplayName = current;
+      throw err;
+    }
+  }
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .update({ display_name: (name || '').trim() || null })
+      .update({ display_name: trimmed })
       .eq('user_id', uid)
       .select('id, user_id, display_name, code, pet_type, xp, equipped, last_seen')
       .single();
@@ -107,7 +137,7 @@ export async function updateDisplayName(name) {
     if (error?.code === '42703') {
       await supabase
         .from('profiles')
-        .update({ display_name: (name || '').trim() || null })
+        .update({ display_name: trimmed })
         .eq('user_id', uid);
       const rows = await selectProfileWithFallback((q) => q.eq('user_id', uid).limit(1));
       return rows[0] ? normalizeProfileRow(rows[0]) : null;
@@ -321,7 +351,10 @@ export function subscribeToFriendVisits(hostId, handler) {
       })
       .subscribe();
   } catch (error) {
-    if (isFriendVisitTableMissing(error)) return null;
+    const message = typeof error?.message === 'string' ? error.message : '';
+    if (isFriendVisitTableMissing(error) || message.includes('Network request failed')) {
+      return null;
+    }
     throw error;
   }
 }

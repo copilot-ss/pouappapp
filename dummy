@@ -1,0 +1,22 @@
+*** Begin Patch
+*** Update File: PouAppApp/src/components/Profile/ProfileScreen.js
+@@
+   input: {
+     borderWidth: 1,
+     borderColor: '#E5E7EB',
+     backgroundColor: '#FFFFFF',
+     borderRadius: 10,
+     paddingHorizontal: 12,
+     paddingVertical: 10,
+     color: '#111827',
+   },
++  inputLocked: {
++    backgroundColor: '#E5E7EB',
++    color: '#4B5563',
++  },
+   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+@@
+   hint: { color: '#6B7280', fontSize: 12 },
+   hintSmall: { color: '#6B7280', fontSize: 11, marginBottom: 4 },
++  lockedNote: { color: '#6B7280', fontSize: 12, fontStyle: 'italic' },
+*** End Patch

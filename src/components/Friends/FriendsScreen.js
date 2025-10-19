@@ -3,16 +3,12 @@ import { View, Text, Pressable, ScrollView, StyleSheet, TextInput, ActivityIndic
 import OutfitPreview from '../OutfitPreview';
 import { getLevelInfo } from '../../lib/progression';
 import { getSpecies } from '../../domain/species';
-import { ensureAccount, saveAccount } from '../../state/account';
+import { ensureAccount } from '../../state/account';
 import { addFriend, loadFriends, removeFriend } from '../../state/friends';
 import {
   cloudAvailable,
   getSession,
-  signInEmailPassword,
-  signUpEmailPassword,
-  signOut,
   getOrCreateProfile,
-  updateDisplayName,
   fetchFriends,
   fetchRequests,
   sendFriendRequestByCode,
@@ -32,17 +28,19 @@ try {
   }
 }
 
-const TABS = [
-  { key: 'profile', label: 'Profil' },
-  { key: 'friends', label: 'Freunde' },
-];
 function formatCode(code) {
   if (!code) return '------';
   return String(code).toUpperCase();
 }
 
-export default function FriendsScreen({ open, onClose, onVisitFriend = () => {}, onFriendRemoved = () => {}, selfSnapshot = null }) {
-  const [tab, setTab] = React.useState('profile');
+export default function FriendsScreen({
+  open,
+  onClose,
+  onVisitFriend = () => {},
+  onFriendRemoved = () => {},
+  onOpenProfile = () => {},
+  selfSnapshot = null,
+}) {
   const [copyFeedback, setCopyFeedback] = React.useState(null);
   // Local offline state
   const [me, setMe] = React.useState(null);
@@ -67,8 +65,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   const [cloudProfile, setCloudProfile] = React.useState(null);
   const [cloudFriends, setCloudFriends] = React.useState([]);
   const [requests, setRequests] = React.useState([]);
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
   const [friendRequestError, setFriendRequestError] = React.useState(null);
   const [friendRequestMessage, setFriendRequestMessage] = React.useState(null);
   const [refreshingCloud, setRefreshingCloud] = React.useState(false);
@@ -116,35 +112,53 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   }, [showCopyMessage]);
   React.useEffect(() => {
     if (!open) return;
-    const c = cloudAvailable();
-    setCloud(c);
-    if (c) {
-      (async () => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const accountData = await ensureAccount();
+        if (cancelled) return;
+        setMe(accountData);
+        setName(accountData?.name || '');
+        const localFriends = await loadFriends();
+        if (cancelled) return;
+        setFriends(localFriends);
+
+        const c = cloudAvailable();
+        if (cancelled) return;
+        setCloud(c);
+        if (!c) return;
+
         setLoading(true);
         try {
           const s = await getSession();
+          if (cancelled) return;
           setSession(s);
-          if (s) {
-            const prof = await getOrCreateProfile(name);
-            setCloudProfile(prof);
-            setName(prof?.display_name || '');
-            const [friendsData, requestsData] = await Promise.all([fetchFriends(), fetchRequests()]);
-            setCloudFriends(friendsData);
-            setRequests(requestsData);
+          if (!s) {
+            setCloudProfile(null);
+            setCloudFriends([]);
+            setRequests([]);
+            return;
           }
+          const profile = await getOrCreateProfile(accountData?.name || '');
+          if (cancelled) return;
+          setCloudProfile(profile);
+          setName(profile?.display_name || accountData?.name || '');
+          const [friendsData, requestsData] = await Promise.all([fetchFriends(), fetchRequests()]);
+          if (cancelled) return;
+          setCloudFriends(friendsData);
+          setRequests(requestsData);
         } finally {
-          setLoading(false);
+          if (!cancelled) {
+            setLoading(false);
+          }
         }
-      })();
-    } else {
-      (async () => {
-        const acc = await ensureAccount();
-        setMe(acc);
-        setName(acc.name || '');
-        const list = await loadFriends();
-        setFriends(list);
-      })();
-    }
+      } catch (error) {
+        if (__DEV__) console.warn('FriendsScreen init failed', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
   const normalizeFriendRequestError = React.useCallback((error) => {
     if (!error) return null;
@@ -263,7 +277,7 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   }, []);
 
   if (!open) return null;
-  const activeFriendCode = cloud ? cloudProfile?.code : me?.code;
+  const activeFriendCode = (cloud && session ? cloudProfile?.code : null) || me?.code;
   const formattedFriendCode = formatCode(activeFriendCode);
   const copyDisabled = !activeFriendCode;
   let selectedFriendMeta = '';
@@ -288,22 +302,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       selectedFriendMeta = 'Offline-Freund';
     }
   }
-  const saveName = async () => {
-    const trimmed = (name || '').trim();
-    if (cloud && session) {
-      setLoading(true);
-      try {
-        const next = await updateDisplayName(trimmed);
-        setCloudProfile(next);
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      const next = await saveAccount({ name: trimmed });
-      setMe(next);
-    }
-  };
-
   const handleAdd = async () => {
     if (!codeInput.trim()) return;
     if (cloud && session) {
@@ -364,141 +362,98 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   return (
     <View style={styles.screen} pointerEvents="auto">
       <View style={styles.header}>
-        <Text style={styles.title}>Konto & Freunde</Text>
-        <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-          <Text style={styles.closeX}>{String.fromCodePoint(0x2715)}</Text>
-        </Pressable>
-      </View>
-      <View style={styles.tabs}>
-        {TABS.map((t) => (
-          <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.tab, tab === t.key && styles.tabActive]}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+        <Text style={styles.title}>Freunde</Text>
+        <View style={styles.headerActions}>
+          <Pressable style={styles.profileLink} onPress={onOpenProfile}>
+            <Text style={styles.profileLinkText}>Profil</Text>
           </Pressable>
-        ))}
+          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+            <Text style={styles.closeX}>{String.fromCodePoint(0x2715)}</Text>
+          </Pressable>
+        </View>
       </View>
-      {tab === 'profile' && (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {cloud && !session && (
-            <View style={[styles.card, { borderColor: '#111827' }]}>
-              <Text style={styles.sectionTitle}>Anmelden</Text>
-              <Text style={styles.label}>E-Mail</Text>
-              <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-              <Text style={styles.label}>Passwort</Text>
-              <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry />
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Pressable style={styles.primaryBtn} onPress={async () => { setLoading(true); try { await signInEmailPassword(email.trim(), password); const s = await getSession(); setSession(s); if (s) { const prof = await getOrCreateProfile(''); setCloudProfile(prof); setName(prof?.display_name || ''); setCloudFriends(await fetchFriends()); setRequests(await fetchRequests()); } } finally { setLoading(false); } }}>
-                  <Text style={styles.primaryBtnText}>Einloggen</Text>
-                </Pressable>
-                <Pressable style={styles.secondaryBtn} onPress={async () => { setLoading(true); try { await signUpEmailPassword(email.trim(), password); const s = await getSession(); setSession(s); if (s) { const prof = await getOrCreateProfile(''); setCloudProfile(prof); setName(prof?.display_name || ''); setCloudFriends(await fetchFriends()); setRequests(await fetchRequests()); } } finally { setLoading(false); } }}>
-                  <Text style={styles.secondaryBtnText}>Registrieren</Text>
-                </Pressable>
-              </View>
-              {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
-              <Text style={styles.hint}>Hinweis: Freunde in der Cloud erfordern Anmeldung.</Text>
-            </View>
-          )}
-          <Text style={styles.sectionTitle}>Dein Profil</Text>
-          <View style={styles.card}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Dein Anzeigename"
-              value={name}
-              onChangeText={setName}
-              maxLength={24}
-              returnKeyType="done"
-            />
-            <Pressable style={styles.primaryBtn} onPress={saveName}>
-              <Text style={styles.primaryBtnText}>Speichern</Text>
-            </Pressable>
-            {cloud && session && (
-              <Pressable style={[styles.secondaryBtn, { marginTop: 6 }]} onPress={async () => { setLoading(true); try { await signOut(); setSession(null); setCloudProfile(null); } finally { setLoading(false); } }}>
-                <Text style={styles.secondaryBtnText}>Abmelden</Text>
-              </Pressable>
-            )}
-          </View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>Freundescode</Text>
-          <View style={styles.card}>
-            <View style={styles.codeCard}>
-              <Text style={styles.code}>{formattedFriendCode}</Text>
-              <Pressable
-                style={[styles.copyBtn, copyDisabled && styles.refreshBtnDisabled]}
-                onPress={() => handleCopy(activeFriendCode)}
-                disabled={copyDisabled}
-              >
-                <Text style={styles.copyBtnText}>Kopieren</Text>
-              </Pressable>
-            </View>
-            {copyFeedback ? <Text style={styles.copyFeedback}>{copyFeedback}</Text> : null}
-            <Text style={styles.hint}>Teile diesen Code, damit dich Freunde hinzufuegen koennen.</Text>
-          </View>
-          {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
-        </ScrollView>
-      )}
-      {tab === 'friends' && (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>Freund hinzufuegen</Text>
-          <View style={styles.card}>
-            <Text style={styles.label}>Code</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="z.B. ABC123"
-              value={codeInput}
-              autoCapitalize="characters"
-              onChangeText={setCodeInput}
-              returnKeyType="next"
-            />
-            <Pressable style={styles.primaryBtn} onPress={handleAdd}>
-              <Text style={styles.primaryBtnText}>{cloud && session ? 'Anfrage senden' : 'Hinzufuegen (offline)'}</Text>
+          <View style={styles.codeCard}>
+            <Text style={styles.code}>{formattedFriendCode}</Text>
+            <Pressable
+              style={[styles.copyBtn, copyDisabled && styles.refreshBtnDisabled]}
+              onPress={() => handleCopy(activeFriendCode)}
+              disabled={copyDisabled}
+            >
+              <Text style={styles.copyBtnText}>Kopieren</Text>
             </Pressable>
           </View>
-          {cloud && session && (
-            <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Anfragen</Text>
-                <Pressable
-                  style={[styles.refreshBtn, (refreshingCloud || loading) && styles.refreshBtnDisabled]}
-                  disabled={refreshingCloud || loading}
-                  onPress={() => refreshCloudData({ showSpinner: true })}
-                >
-                  <Text style={styles.refreshBtnText}>{refreshingCloud ? 'Aktualisiere...' : 'Neu laden'}</Text>
-                </Pressable>
-              </View>
-              <View style={{ gap: 10 }}>
-                {requests.length === 0 && (
-                  <Text style={styles.hint}>Keine offenen Anfragen.</Text>
-                )}
-                {requests.map((r) => (
-                  <View key={r.id} style={styles.friendRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.friendName}>{r.requester_name || 'Unbekannt'}</Text>
-                      <Text style={styles.friendCode}>{r.requester_code}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <Pressable style={styles.primaryBtn} onPress={() => handleAccept(r.id)}>
-                        <Text style={styles.primaryBtnText}>Annehmen</Text>
-                      </Pressable>
-                      <Pressable style={styles.removeBtn} onPress={() => handleDecline(r.id)}>
-                        <Text style={styles.removeBtnText}>Ablehnen</Text>
-                      </Pressable>
-                    </View>
+          {copyFeedback ? <Text style={styles.copyFeedback}>{copyFeedback}</Text> : null}
+          <Text style={styles.hint}>Teile diesen Code, damit dich Freunde hinzufuegen koennen.</Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>Freund hinzufuegen</Text>
+        <View style={styles.card}>
+          <Text style={styles.label}>Code</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="z.B. ABC123"
+            value={codeInput}
+            autoCapitalize="characters"
+            onChangeText={setCodeInput}
+            returnKeyType="next"
+          />
+          <Pressable style={styles.primaryBtn} onPress={handleAdd}>
+            <Text style={styles.primaryBtnText}>{cloud && session ? 'Anfrage senden' : 'Hinzufuegen (offline)'}</Text>
+          </Pressable>
+        </View>
+        {friendRequestMessage ? <Text style={styles.statusSuccess}>{friendRequestMessage}</Text> : null}
+
+        {cloud && session ? (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Anfragen</Text>
+              <Pressable
+                style={[styles.refreshBtn, (refreshingCloud || loading) && styles.refreshBtnDisabled]}
+                disabled={refreshingCloud || loading}
+                onPress={() => refreshCloudData({ showSpinner: true })}
+              >
+                <Text style={styles.refreshBtnText}>{refreshingCloud ? 'Aktualisiere...' : 'Neu laden'}</Text>
+              </Pressable>
+            </View>
+            <View style={{ gap: 10 }}>
+              {requests.length === 0 && (
+                <Text style={styles.hint}>Keine offenen Anfragen.</Text>
+              )}
+              {requests.map((r) => (
+                <View key={r.id} style={styles.friendRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.friendName}>{r.requester_name || 'Unbekannt'}</Text>
+                    <Text style={styles.friendCode}>{r.requester_code}</Text>
                   </View>
-                ))}
-              </View>
-              <Text style={styles.sectionTitle}>Deine Freunde</Text>
-              <View style={{ gap: 10 }}>
-                {cloudFriends.length === 0 && (
-                  <Text style={styles.hint}>Noch keine Freunde angenommen.</Text>
-                )}
-                {cloudFriends.map((f) => {
-                  const { level } = getLevelInfo(f.friend_xp || 0);
-                  const species = f.friend_pet_type ? getSpecies(f.friend_pet_type) : null;
-                  const meta = `Lv. ${level} - ${species ? species.name : 'Unbekannt'}`;
-                  return (
-                    <Pressable
-                      key={f.friend_id}
-                      style={styles.friendRow}
-                      onPress={() => openFriendDetail({
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable style={styles.primaryBtn} onPress={() => handleAccept(r.id)}>
+                      <Text style={styles.primaryBtnText}>Annehmen</Text>
+                    </Pressable>
+                    <Pressable style={styles.removeBtn} onPress={() => handleDecline(r.id)}>
+                      <Text style={styles.removeBtnText}>Ablehnen</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.sectionTitle}>Deine Freunde</Text>
+            <View style={{ gap: 10 }}>
+              {cloudFriends.length === 0 && (
+                <Text style={styles.hint}>Noch keine Freunde angenommen.</Text>
+              )}
+              {cloudFriends.map((f) => {
+                const { level } = getLevelInfo(f.friend_xp || 0);
+                const species = f.friend_pet_type ? getSpecies(f.friend_pet_type) : null;
+                const meta = `Lv. ${level} - ${species ? species.name : 'Unbekannt'}`;
+                return (
+                  <Pressable
+                    key={f.friend_id}
+                    style={styles.friendRow}
+                    onPress={() =>
+                      openFriendDetail({
                         kind: 'cloud',
                         friendId: f.friend_id,
                         displayName: f.friend_name || 'Unbenannt',
@@ -507,54 +462,55 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
                         petType: f.friend_pet_type || null,
                         equipped: f.friend_equipped || {},
                         lastSeen: f.friend_last_seen || null,
-                      })}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.friendName}>{f.friend_name || 'Unbenannt'}</Text>
-                        <Text style={styles.friendMeta}>{meta}</Text>
-                        <Text style={styles.friendCode}>{f.friend_code}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </>
-          )}
-          {!cloud && (
-            <>
-              <Text style={styles.sectionTitle}>Deine Freunde</Text>
-              <View style={{ gap: 10 }}>
-                {friends.length === 0 && (
-                  <Text style={styles.hint}>Noch keine Freunde. Fuege jemanden per Code hinzu.</Text>
-                )}
-                {friends.map((f) => {
-                  const displayName = f.name || 'Unbenannt';
-                  const code = formatCode(f.code);
-                  return (
-                    <Pressable
-                      key={f.id}
-                      style={styles.friendRow}
-                      onPress={() => openFriendDetail({
+                      })
+                    }
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.friendName}>{f.friend_name || 'Unbenannt'}</Text>
+                      <Text style={styles.friendMeta}>{meta}</Text>
+                      <Text style={styles.friendCode}>{f.friend_code}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>Deine Freunde</Text>
+            <View style={{ gap: 10 }}>
+              {friends.length === 0 && (
+                <Text style={styles.hint}>Noch keine Freunde. Fuege jemanden per Code hinzu.</Text>
+              )}
+              {friends.map((f) => {
+                const displayName = f.name || 'Unbenannt';
+                const code = formatCode(f.code);
+                return (
+                  <Pressable
+                    key={f.id}
+                    style={styles.friendRow}
+                    onPress={() =>
+                      openFriendDetail({
                         kind: 'offline',
                         localId: f.id,
                         displayName,
                         code,
-                      })}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.friendName}>{displayName}</Text>
-                        <Text style={styles.friendMeta}>Offline-Freund</Text>
-                        <Text style={styles.friendCode}>{code}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </>
-          )}
-          {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
-        </ScrollView>
-      )}
+                      })
+                    }
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.friendName}>{displayName}</Text>
+                      <Text style={styles.friendMeta}>Offline-Freund</Text>
+                      <Text style={styles.friendCode}>{code}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        )}
+        {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
+      </ScrollView>
       {selectedFriend && (
         <View style={styles.detailOverlay} pointerEvents="auto">
           <View style={styles.detailCard}>
@@ -630,7 +586,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 14,
@@ -638,14 +594,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
     gap: 12,
   },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#111827' },
-  closeBtn: { width: 40, height: 40, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', marginLeft: 'auto' },
+  title: { fontSize: 18, fontWeight: '700', color: '#111827' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  closeBtn: { width: 40, height: 40, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
   closeX: { fontSize: 28, color: '#111827', fontWeight: '900' },
-  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  tab: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#F3F4F6' },
-  tabActive: { backgroundColor: '#111827' },
-  tabText: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  tabTextActive: { color: '#FFFFFF' },
+  profileLink: { backgroundColor: '#E0F2FE', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: '#BAE6FD' },
+  profileLinkText: { color: '#0369A1', fontWeight: '700', fontSize: 13 },
   content: { paddingHorizontal: 12, paddingBottom: 24, paddingTop: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginTop: 12, marginBottom: 8, color: '#111827' },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 8 },
@@ -661,14 +615,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: '#111827' },
   primaryBtn: { backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, alignSelf: 'flex-start' },
   primaryBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0.4 },
-  secondaryBtn: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#111827', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, alignSelf: 'flex-start' },
-  secondaryBtnText: { color: '#111827', fontSize: 14, fontWeight: '800', letterSpacing: 0.4 },
-  code: { fontSize: 26, fontWeight: '800', letterSpacing: 3, color: '#111827' },
+  code: { fontSize: 22, fontWeight: '800', letterSpacing: 2, color: '#111827' },
   hint: { color: '#6B7280', fontSize: 12 },
   friendRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', padding: 10, borderRadius: 10, gap: 12 },
   friendName: { fontSize: 14, fontWeight: '700', color: '#111827' },
   friendMeta: { fontSize: 12, fontWeight: '500', color: '#4B5563' },
-  friendVisitHint: { fontSize: 11, fontWeight: '600', color: '#9CA3AF' },
   statusSuccess: { marginTop: 6, color: '#10B981', fontSize: 12, fontWeight: '600' },
   statusError: { marginTop: 6, color: '#DC2626', fontSize: 12, fontWeight: '600' },
   friendCode: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
