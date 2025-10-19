@@ -138,8 +138,6 @@ export default function ProfileScreen({
     loadProfile();
   }, [loadProfile, open]);
 
-  if (!open) return null;
-
   const applyCloudDisplayName = React.useCallback(
     async (name) => {
       const trimmed = (name || '').trim();
@@ -152,6 +150,8 @@ export default function ProfileScreen({
     },
     [setAccount, setCloudProfile, setDisplayName, updateDisplayName, saveAccount],
   );
+
+  if (!open) return null;
 
   const handleSaveName = async () => {
     const trimmed = (displayName || '').trim();
