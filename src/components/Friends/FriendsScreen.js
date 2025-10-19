@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
 import OutfitPreview from '../OutfitPreview';
 import { getLevelInfo } from '../../lib/progression';
@@ -24,7 +24,8 @@ import {
 let Clipboard = null;
 try {
   // Some dev clients might miss the native module; handle gracefully.
-  Clipboard = require('expo-clipboard');
+  const mod = require('expo-clipboard');
+  Clipboard = mod?.default ?? mod;
 } catch (error) {
   if (__DEV__) {
     console.warn('expo-clipboard native module missing; copy disabled.', error);
@@ -35,7 +36,6 @@ const TABS = [
   { key: 'profile', label: 'Profil' },
   { key: 'friends', label: 'Freunde' },
 ];
-
 function formatCode(code) {
   if (!code) return '------';
   return String(code).toUpperCase();
@@ -69,7 +69,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   const [requests, setRequests] = React.useState([]);
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
-
   const [friendRequestError, setFriendRequestError] = React.useState(null);
   const [friendRequestMessage, setFriendRequestMessage] = React.useState(null);
   const [refreshingCloud, setRefreshingCloud] = React.useState(false);
@@ -77,7 +76,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   const [removalConfirm, setRemovalConfirm] = React.useState(false);
   const [removingFriend, setRemovingFriend] = React.useState(false);
   const [removalError, setRemovalError] = React.useState(null);
-
   const copyResetRef = React.useRef(null);
   const showCopyMessage = React.useCallback((message) => {
     if (copyResetRef.current) {
@@ -89,7 +87,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       copyResetRef.current = null;
     }, 1200);
   }, [setCopyFeedback]);
-
   React.useEffect(() => {
     return () => {
       if (copyResetRef.current) {
@@ -97,18 +94,26 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       }
     };
   }, []);
-
   const handleCopy = React.useCallback((code) => {
     if (!code) return;
-    if (Clipboard?.setStringAsync) {
-      Clipboard.setStringAsync(String(code))
+    const clip = Clipboard;
+    if (clip?.setStringAsync) {
+      Promise.resolve(clip.setStringAsync(String(code)))
         .then(() => showCopyMessage('Code kopiert!'))
         .catch(() => showCopyMessage('Kopieren fehlgeschlagen'));
       return;
     }
+    if (clip && typeof clip.setString === 'function') {
+      try {
+        clip.setString(String(code));
+        showCopyMessage('Code kopiert!');
+      } catch (error) {
+        showCopyMessage('Kopieren fehlgeschlagen');
+      }
+      return;
+    }
     showCopyMessage('Zwischenablage nicht verfuegbar');
   }, [showCopyMessage]);
-
   React.useEffect(() => {
     if (!open) return;
     const c = cloudAvailable();
@@ -141,7 +146,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       })();
     }
   }, [open]);
-
   const normalizeFriendRequestError = React.useCallback((error) => {
     if (!error) return null;
     const message = typeof error === 'string' ? error : error?.message || 'Unbekannter Fehler';
@@ -151,7 +155,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
     if (message.includes('not_authenticated')) return 'Bitte melde dich an, um Freundschaftsanfragen zu nutzen.';
     return message;
   }, []);
-
   const refreshCloudData = React.useCallback(async ({ showSpinner = true } = {}) => {
     if (!cloud || !session) return;
     if (showSpinner) setRefreshingCloud(true);
@@ -163,31 +166,26 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       if (showSpinner) setRefreshingCloud(false);
     }
   }, [cloud, session]);
-
   const resetDetailState = React.useCallback(() => {
     setRemovalConfirm(false);
     setRemovalError(null);
     setRemovingFriend(false);
   }, []);
-
   React.useEffect(() => {
     if (!open) {
       setSelectedFriend(null);
       resetDetailState();
     }
   }, [open, resetDetailState]);
-
   const openFriendDetail = React.useCallback((friend) => {
     if (!friend) return;
     resetDetailState();
     setSelectedFriend(friend);
   }, [resetDetailState]);
-
   const closeFriendDetail = React.useCallback(() => {
     setSelectedFriend(null);
     resetDetailState();
   }, [resetDetailState]);
-
   const handleVisitFriend = React.useCallback((friend) => {
     if (!friend) return;
     if (typeof onVisitFriend === 'function') {
@@ -231,7 +229,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
     }
     closeFriendDetail();
   }, [cloud, session, cloudProfile, name, onVisitFriend, closeFriendDetail, localVisitorSnapshot]);
-
   const confirmRemoveSelectedFriend = React.useCallback(async () => {
     if (!selectedFriend) return;
     setRemovingFriend(true);
@@ -256,7 +253,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       setRemovingFriend(false);
     }
   }, [selectedFriend, refreshCloudData, onFriendRemoved, closeFriendDetail, normalizeFriendRequestError, removeFriendship, removeFriend, setFriends, setFriendRequestMessage]);
-
   const formatTimestamp = React.useCallback((value) => {
     if (!value) return 'Unbekannt';
     try {
@@ -270,7 +266,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
   const activeFriendCode = cloud ? cloudProfile?.code : me?.code;
   const formattedFriendCode = formatCode(activeFriendCode);
   const copyDisabled = !activeFriendCode;
-
   let selectedFriendMeta = '';
   let selectedFriendVisitPayload = null;
   let selectedFriendLevel = null;
@@ -293,7 +288,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       selectedFriendMeta = 'Offline-Freund';
     }
   }
-
   const saveName = async () => {
     const trimmed = (name || '').trim();
     if (cloud && session) {
@@ -367,7 +361,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
       setLoading(false);
     }
   };
-
   return (
     <View style={styles.screen} pointerEvents="auto">
       <View style={styles.header}>
@@ -376,7 +369,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
           <Text style={styles.closeX}>{String.fromCodePoint(0x2715)}</Text>
         </Pressable>
       </View>
-
       <View style={styles.tabs}>
         {TABS.map((t) => (
           <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.tab, tab === t.key && styles.tabActive]}>
@@ -384,7 +376,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
           </Pressable>
         ))}
       </View>
-
       {tab === 'profile' && (
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {cloud && !session && (
@@ -406,7 +397,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
               <Text style={styles.hint}>Hinweis: Freunde in der Cloud erfordern Anmeldung.</Text>
             </View>
           )}
-
           <Text style={styles.sectionTitle}>Dein Profil</Text>
           <View style={styles.card}>
             <Text style={styles.label}>Name</Text>
@@ -427,7 +417,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
               </Pressable>
             )}
           </View>
-
           <Text style={styles.sectionTitle}>Freundescode</Text>
           <View style={styles.card}>
             <View style={styles.codeCard}>
@@ -446,7 +435,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
           {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
         </ScrollView>
       )}
-
       {tab === 'friends' && (
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.sectionTitle}>Freund hinzufuegen</Text>
@@ -464,7 +452,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
               <Text style={styles.primaryBtnText}>{cloud && session ? 'Anfrage senden' : 'Hinzufuegen (offline)'}</Text>
             </Pressable>
           </View>
-
           {cloud && session && (
             <>
               <View style={styles.sectionHeader}>
@@ -498,7 +485,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
                   </View>
                 ))}
               </View>
-
               <Text style={styles.sectionTitle}>Deine Freunde</Text>
               <View style={{ gap: 10 }}>
                 {cloudFriends.length === 0 && (
@@ -534,7 +520,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
               </View>
             </>
           )}
-
           {!cloud && (
             <>
               <Text style={styles.sectionTitle}>Deine Freunde</Text>
@@ -567,11 +552,9 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
               </View>
             </>
           )}
-
           {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
         </ScrollView>
       )}
-
       {selectedFriend && (
         <View style={styles.detailOverlay} pointerEvents="auto">
           <View style={styles.detailCard}>
@@ -594,7 +577,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
                 <Text style={styles.detailCloseText}>{String.fromCodePoint(0x2715)}</Text>
               </Pressable>
             </View>
-
             {selectedFriend.kind === 'cloud' ? (
               <View style={styles.detailPreview}>
                 <OutfitPreview species={selectedFriend.petType || 'seestern'} equipped={selectedFriend.equipped} />
@@ -604,16 +586,13 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
                 <Text style={styles.detailSubtle}>Keine Cloud-Daten verfuegbar.</Text>
               </View>
             )}
-
             {removalError ? <Text style={styles.statusError}>{removalError}</Text> : null}
-
             <View style={styles.detailActions}>
               {selectedFriendVisitPayload && session ? (
                 <Pressable style={styles.visitBtn} onPress={() => handleVisitFriend(selectedFriendVisitPayload)}>
                   <Text style={styles.visitBtnText}>Besuchen</Text>
                 </Pressable>
               ) : null}
-
               {removalConfirm ? (
                 <Pressable
                   style={[styles.removeConfirmBtn, removingFriend && styles.refreshBtnDisabled]}
@@ -628,7 +607,6 @@ export default function FriendsScreen({ open, onClose, onVisitFriend = () => {},
                 </Pressable>
               )}
             </View>
-
           </View>
         </View>
       )}
@@ -642,8 +620,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    top: 56,
-    bottom: -24,
+    top: 0,
+    bottom: 0,
+    paddingTop: 56,
     backgroundColor: '#FFFFFF',
     zIndex: 110,
     elevation: 12,
@@ -714,10 +693,5 @@ const styles = StyleSheet.create({
   removeConfirmBtn: { borderRadius: 10, paddingVertical: 10, alignItems: 'center', backgroundColor: '#DC2626' },
   removeConfirmText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
 });
-
-
-
-
-
 
 

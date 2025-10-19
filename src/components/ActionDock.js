@@ -1,5 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, PanResponder } from 'react-native';
+import { Pressable, StyleSheet, Text, View, PanResponder, Image } from 'react-native';
+
+const SOAP_ICON = require('../../assets/ui/soap.png');
 
 function IconButton({ label, onPress, disabled }) {
   return (
@@ -73,7 +75,7 @@ export default function ActionDock({
       <IconButton label={String.fromCodePoint(0x1F357)} onPress={onFeed} disabled={feedDisabled ?? !canAct} />
       <IconButton label={sleepLabel} onPress={onToggleSleep} />
       <View style={styles.soapWrap} {...soapPan.panHandlers}>
-        <Text style={styles.iconText}>{String.fromCodePoint(0x1F9FC)}</Text>
+        <Image source={SOAP_ICON} style={styles.soapIcon} />
       </View>
     </View>
   );
@@ -112,4 +114,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  soapIcon: {
+    width: 36,
+    height: 36,
+    resizeMode: 'contain',
+  },
 });
+
+
+

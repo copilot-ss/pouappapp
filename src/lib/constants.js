@@ -1,6 +1,6 @@
 ﻿export const STORAGE_KEY = 'pou/state/v1';
 
-// Slower per-second decay/recovery to make gameplay calmer
+// Per-minute decay/recovery rates to keep gameplay calm
 export const DECAY_AWAKE = { hunger: 0.25, fun: 0.2, clean: 0.15, energy: 0.05 };
 export const DECAY_SLEEP = { hunger: 0.12, fun: 0.1, clean: 0.12, energy: -0.6 };
 
