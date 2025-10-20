@@ -28,6 +28,15 @@ import {
   fetchActiveVisitForHost,
   subscribeToFriendVisits,
   endFriendVisitAsHost,
+  fetchOpenGameInvites,
+  sendGameInvite,
+  acceptGameInvite,
+  declineGameInvite,
+  cancelGameInvite,
+  submitTicTacToeMove,
+  subscribeToGameInvites,
+  dismissFinishedGame,
+  touchLastSeen,
 } from '../state/cloudFriends';
 import { supabase } from '../lib/supabaseClient';
 
@@ -50,6 +59,9 @@ export default function useGameController() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [visitingFriend, setVisitingFriend] = useState(null);
   const [incomingVisitor, setIncomingVisitor] = useState(null);
+  const [ticTacToeOutgoing, setTicTacToeOutgoing] = useState(null);
+  const [ticTacToeIncoming, setTicTacToeIncoming] = useState(null);
+  const [ticTacToeMatch, setTicTacToeMatch] = useState(null);
   const [petType, setPetType] = useState(null);
   const [petSelectOpen, setPetSelectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -74,6 +86,8 @@ export default function useGameController() {
   const [toastMessage, setToastMessage] = useState('');
 
   const [cloudSession, setCloudSession] = useState(null);
+  const userId = cloudSession?.user?.id ?? null;
+  const lastSeenTimerRef = useRef(null);
 
   const cloudSyncReadyRef = useRef(false);
   const skipCloudPushRef = useRef(false);
@@ -91,6 +105,7 @@ export default function useGameController() {
     petType: null,
     equipped: cloneEquipped(),
   });
+  const dismissedGameIdsRef = useRef(new Set());
 
   useEffect(() => {
     latestStateRef.current = {
@@ -145,6 +160,51 @@ export default function useGameController() {
       } catch {}
     },
     [soundOn],
+  );
+
+  const touchPresence = useCallback(() => {
+    if (!userId) return;
+    touchLastSeen().catch(() => {});
+  }, [userId]);
+
+  const applyGameInvites = useCallback(
+    (invites) => {
+      if (!userId) {
+        setTicTacToeOutgoing(null);
+        setTicTacToeIncoming(null);
+        setTicTacToeMatch(null);
+        return;
+      }
+      if (!Array.isArray(invites)) return;
+      let outgoing = null;
+      let incoming = null;
+      let match = null;
+      for (const invite of invites) {
+        if (!invite || invite.gameType !== 'tictactoe') continue;
+        if (invite.status === 'pending') {
+          if (invite.hostId === userId) {
+            if (!outgoing || (invite.createdAt || '') > (outgoing.createdAt || '')) {
+              outgoing = invite;
+            }
+          } else if (invite.opponentId === userId) {
+            if (!incoming || (invite.createdAt || '') > (incoming.createdAt || '')) {
+              incoming = invite;
+            }
+          }
+        } else if (invite.status === 'active' || invite.status === 'finished') {
+          if (!match || (invite.updatedAt || '') >= (match?.updatedAt || '')) {
+            match = invite;
+          }
+        }
+      }
+      if (match && match.status === 'finished' && dismissedGameIdsRef.current.has(match.id)) {
+        match = null;
+      }
+      setTicTacToeOutgoing(outgoing);
+      setTicTacToeIncoming(incoming);
+      setTicTacToeMatch(match);
+    },
+    [userId],
   );
 
   const applyDecaySnapshot = useCallback((state, seconds, sleeping) => {
@@ -495,6 +555,7 @@ export default function useGameController() {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       if ((prev === 'background' || prev === 'inactive') && nextState === 'active') {
+        touchPresence();
         try {
           const raw = await AsyncStorage.getItem(STORAGE_KEY);
           if (!raw) return;
@@ -511,10 +572,12 @@ export default function useGameController() {
           setClean(decayed.clean);
           setEnergy(decayed.energy);
         } catch {}
+      } else if (nextState === 'background' || nextState === 'inactive') {
+        touchPresence();
       }
     });
     return () => sub.remove();
-  }, [applyDecaySnapshot, clean, energy, fun, hunger, isSleeping]);
+  }, [applyDecaySnapshot, clean, energy, fun, hunger, isSleeping, touchPresence]);
 
   const canAct = !isSleeping && !isWashing;
 
@@ -689,6 +752,83 @@ export default function useGameController() {
     }
   }, [cloudSession?.user?.id, showToast]);
 
+  useEffect(() => {
+    if (!userId) {
+      setTicTacToeOutgoing(null);
+      setTicTacToeIncoming(null);
+      setTicTacToeMatch(null);
+      dismissedGameIdsRef.current.clear();
+      return;
+    }
+    let cancelled = false;
+    const syncInvites = async () => {
+      try {
+        const invites = await fetchOpenGameInvites();
+        if (cancelled) return;
+        applyGameInvites(invites);
+      } catch (error) {
+        if (__DEV__) console.warn('fetchOpenGameInvites failed', error);
+      }
+    };
+    syncInvites();
+    const unsubscribe = subscribeToGameInvites(userId, (payload) => {
+      const eventType = payload?.eventType;
+      const next = payload?.new;
+      const prev = payload?.old;
+      if (eventType === 'UPDATE' && next) {
+        if (next.status === 'declined' && next.hostId === userId) {
+          showToast('Spielanfrage abgelehnt.');
+        } else if (next.status === 'cancelled') {
+          if (prev?.status === 'active') {
+            showToast('Spiel abgebrochen.');
+          } else if (next.hostId === userId) {
+            showToast('Spielanfrage abgebrochen.');
+          } else if (next.opponentId === userId) {
+            showToast('Spielanfrage zurueckgezogen.');
+          }
+        } else if (next.status === 'finished') {
+          dismissedGameIdsRef.current.delete(next.id);
+          if (next.winner) {
+            showToast(next.winner === userId ? 'Du hast gewonnen!' : 'Spiel beendet.');
+          } else {
+            showToast('Unentschieden!');
+          }
+        }
+      }
+      if (eventType === 'DELETE' && prev) {
+        dismissedGameIdsRef.current.delete(prev.id);
+      }
+      syncInvites();
+    });
+    return () => {
+      cancelled = true;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [applyGameInvites, showToast, userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      if (lastSeenTimerRef.current) {
+        clearInterval(lastSeenTimerRef.current);
+        lastSeenTimerRef.current = null;
+      }
+      return;
+    }
+    touchPresence();
+    const interval = setInterval(() => {
+      if (appStateRef.current === 'active') {
+        touchPresence();
+      }
+    }, 45000);
+    lastSeenTimerRef.current = interval;
+    return () => {
+      clearInterval(interval);
+      if (lastSeenTimerRef.current === interval) {
+        lastSeenTimerRef.current = null;
+      }
+    };
+  }, [touchPresence, userId]);
+
   const visitingFriendLevel = useMemo(
     () => (visitingFriend ? getLevelInfo(visitingFriend.xp || 0).level : null),
     [visitingFriend],
@@ -701,6 +841,109 @@ export default function useGameController() {
     () => (incomingVisitor?.petType ? getSpecies(incomingVisitor.petType).name : null),
     [incomingVisitor],
   );
+
+  const handleInviteTicTacToe = useCallback(
+    async (friend) => {
+      if (!friend || !friend.friendId) {
+        showToast('Freund kann nicht eingeladen werden.');
+        return;
+      }
+      try {
+        const invite = await sendGameInvite(friend.friendId, {
+          opponentName:
+            friend.displayName || friend.name || friend.friend_name || friend.friendName || null,
+        });
+        dismissedGameIdsRef.current.delete(invite.id);
+        setTicTacToeOutgoing(invite);
+        showToast('Spielanfrage gesendet.');
+      } catch (error) {
+        if (__DEV__) console.warn('sendGameInvite failed', error);
+        showToast('Spielanfrage fehlgeschlagen.');
+      }
+    },
+    [showToast],
+  );
+
+  const handleCancelTicTacToeInvite = useCallback(async () => {
+    if (!ticTacToeOutgoing) return;
+    try {
+      await cancelGameInvite(ticTacToeOutgoing.id);
+      setTicTacToeOutgoing(null);
+      showToast('Spielanfrage abgebrochen.');
+    } catch (error) {
+      if (__DEV__) console.warn('cancelGameInvite failed', error);
+      showToast('Abbruch fehlgeschlagen.');
+    }
+  }, [showToast, ticTacToeOutgoing]);
+
+  const handleAcceptTicTacToeInvite = useCallback(async () => {
+    if (!ticTacToeIncoming) return;
+    try {
+      const invite = await acceptGameInvite(ticTacToeIncoming.id);
+      dismissedGameIdsRef.current.delete(invite.id);
+      setTicTacToeIncoming(null);
+      setTicTacToeMatch(invite);
+      showToast('Spiel gestartet.');
+    } catch (error) {
+      if (__DEV__) console.warn('acceptGameInvite failed', error);
+      showToast('Annahme fehlgeschlagen.');
+    }
+  }, [showToast, ticTacToeIncoming]);
+
+  const handleDeclineTicTacToeInvite = useCallback(async () => {
+    if (!ticTacToeIncoming) return;
+    try {
+      await declineGameInvite(ticTacToeIncoming.id);
+      setTicTacToeIncoming(null);
+      showToast('Einladung abgelehnt.');
+    } catch (error) {
+      if (__DEV__) console.warn('declineGameInvite failed', error);
+      showToast('Ablehnen fehlgeschlagen.');
+    }
+  }, [showToast, ticTacToeIncoming]);
+
+  const handleSubmitTicTacToeMove = useCallback(
+    async (index) => {
+      if (!ticTacToeMatch) return;
+      try {
+        const updated = await submitTicTacToeMove(ticTacToeMatch, index);
+        setTicTacToeMatch(updated);
+        if (updated.status === 'finished') {
+          dismissedGameIdsRef.current.delete(updated.id);
+          if (updated.winner) {
+            showToast(updated.winner === userId ? 'Du hast gewonnen!' : 'Du hast verloren.');
+          } else {
+            showToast('Unentschieden!');
+          }
+        }
+      } catch (error) {
+        if (__DEV__) console.warn('submitTicTacToeMove failed', error);
+        showToast('Zug nicht moeglich.');
+      }
+    },
+    [showToast, ticTacToeMatch, userId],
+  );
+
+  const handleDismissTicTacToeMatch = useCallback(() => {
+    if (!ticTacToeMatch) return;
+    if (ticTacToeMatch.status === 'finished') {
+      dismissedGameIdsRef.current.add(ticTacToeMatch.id);
+      dismissFinishedGame(ticTacToeMatch.id).catch(() => {});
+    }
+    setTicTacToeMatch(null);
+  }, [ticTacToeMatch]);
+
+  const handleForfeitTicTacToeMatch = useCallback(async () => {
+    if (!ticTacToeMatch) return;
+    try {
+      await cancelGameInvite(ticTacToeMatch.id);
+      setTicTacToeMatch(null);
+      showToast('Spiel abgebrochen.');
+    } catch (error) {
+      if (__DEV__) console.warn('cancelGameInvite failed', error);
+      showToast('Abbruch fehlgeschlagen.');
+    }
+  }, [showToast, ticTacToeMatch]);
 
   const handleEquip = useCallback(
     (slot, itemId, options = {}) => {
@@ -1100,6 +1343,39 @@ export default function useGameController() {
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snap)).catch(() => {});
     });
   }, []);
+  const ticTacToeStatusMap = useMemo(() => {
+    const map = {};
+    if (!userId) return map;
+    if (ticTacToeOutgoing) {
+      const otherId =
+        ticTacToeOutgoing.hostId === userId
+          ? ticTacToeOutgoing.opponentId
+          : ticTacToeOutgoing.hostId;
+      if (otherId) {
+        map[otherId] =
+          ticTacToeOutgoing.status === 'finished' ? 'finished' : 'pending-outgoing';
+      }
+    }
+    if (ticTacToeIncoming) {
+      const otherId =
+        ticTacToeIncoming.hostId === userId
+          ? ticTacToeIncoming.opponentId
+          : ticTacToeIncoming.hostId;
+      if (otherId) {
+        map[otherId] =
+          ticTacToeIncoming.status === 'finished' ? 'finished' : 'pending-incoming';
+      }
+    }
+    if (ticTacToeMatch) {
+      const otherId =
+        ticTacToeMatch.hostId === userId ? ticTacToeMatch.opponentId : ticTacToeMatch.hostId;
+      if (otherId) {
+        map[otherId] = ticTacToeMatch.status === 'finished' ? 'finished' : 'active';
+      }
+    }
+    return map;
+  }, [ticTacToeIncoming, ticTacToeMatch, ticTacToeOutgoing, userId]);
+
   const selfSnapshot = useMemo(
     () => ({
       hunger,
@@ -1140,6 +1416,10 @@ export default function useGameController() {
     setProfileOpen,
     visitingFriend,
     incomingVisitor,
+    ticTacToeOutgoing,
+    ticTacToeIncoming,
+    ticTacToeMatch,
+    ticTacToeStatusByFriend: ticTacToeStatusMap,
     petType,
     setPetType,
     petSelectOpen,
@@ -1178,6 +1458,13 @@ export default function useGameController() {
     handlePetAreaInteract,
     handleVisitFriend,
     handleFriendRemoved,
+    handleInviteTicTacToe,
+    handleCancelTicTacToeInvite,
+    handleAcceptTicTacToeInvite,
+    handleDeclineTicTacToeInvite,
+    handleSubmitTicTacToeMove,
+    handleDismissTicTacToeMatch,
+    handleForfeitTicTacToeMatch,
     handleEndVisit,
     handleDismissIncomingVisit,
     handleShopPurchase,
@@ -1189,6 +1476,9 @@ export default function useGameController() {
     updateSettings,
     resetPet,
     selectPet,
+    petAreaRef,
+    mainRef,
+    cloudUserId: userId,
     selfSnapshot,
   };
 }

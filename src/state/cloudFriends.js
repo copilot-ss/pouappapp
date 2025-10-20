@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { createEmptyBoard, evaluateBoard, serializeBoard } from '../domain/tictactoe';
 
 function normalizeProfileRow(row) {
   if (!row) return row;
@@ -357,4 +358,257 @@ export function subscribeToFriendVisits(hostId, handler) {
     }
     throw error;
   }
+}
+
+export async function touchLastSeen() {
+  if (!cloudAvailable()) return;
+  const session = await getSession();
+  if (!session) return;
+  try {
+    await supabase
+      .from('profiles')
+      .update({ last_seen: new Date().toISOString() })
+      .eq('user_id', session.user.id);
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('touchLastSeen failed', error);
+    }
+  }
+}
+
+function normalizeGameInvite(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    hostId: row.host_id,
+    opponentId: row.opponent_id,
+    gameType: row.game_type || 'tictactoe',
+    status: row.status,
+    board: serializeBoard(row.board),
+    turn: row.turn || null,
+    winner: row.winner || null,
+    hostSymbol: row.host_symbol || 'X',
+    opponentSymbol: row.opponent_symbol || 'O',
+    hostName: row.host_name || null,
+    opponentName: row.opponent_name || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function normalizeGamePayload(payload) {
+  if (!payload) return null;
+  return {
+    eventType: payload.eventType,
+    new: payload.new ? normalizeGameInvite(payload.new) : null,
+    old: payload.old ? normalizeGameInvite(payload.old) : null,
+  };
+}
+
+export async function fetchOpenGameInvites() {
+  const session = await getSession();
+  if (!session) return [];
+  const uid = session.user.id;
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .select('id, host_id, opponent_id, game_type, status, board, turn, winner, host_symbol, opponent_symbol, host_name, opponent_name, created_at, updated_at')
+    .or(`host_id.eq.${uid},opponent_id.eq.${uid}`)
+    .in('status', ['pending', 'active', 'finished'])
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(normalizeGameInvite);
+}
+
+export async function sendGameInvite(opponentId, { gameType = 'tictactoe', hostName = null, opponentName = null } = {}) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  if (!opponentId) throw new Error('invalid_opponent');
+  const hostId = session.user.id;
+  try {
+    await supabase
+      .from('friend_game_invites')
+      .delete()
+      .eq('host_id', hostId)
+      .eq('opponent_id', opponentId)
+      .eq('status', 'pending');
+  } catch {}
+  const payload = {
+    host_id: hostId,
+    opponent_id: opponentId,
+    game_type: gameType,
+    status: 'pending',
+    board: [],
+    host_name: hostName,
+    opponent_name: opponentName,
+  };
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeGameInvite(data);
+}
+
+export async function cancelGameInvite(inviteId) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  const uid = session.user.id;
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .update({ status: 'cancelled', turn: null })
+    .eq('id', inviteId)
+    .eq('host_id', uid)
+    .in('status', ['pending', 'active'])
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeGameInvite(data);
+}
+
+export async function acceptGameInvite(inviteId) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  const uid = session.user.id;
+  const { data: invite, error: fetchError } = await supabase
+    .from('friend_game_invites')
+    .select('*')
+    .eq('id', inviteId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!invite) {
+    const err = new Error('invite_not_found');
+    err.code = 'invite_not_found';
+    throw err;
+  }
+  if (invite.opponent_id !== uid) {
+    const err = new Error('not_authorized');
+    err.code = 'not_authorized';
+    throw err;
+  }
+  if (invite.status !== 'pending') {
+    return normalizeGameInvite(invite);
+  }
+  const board = createEmptyBoard();
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .update({ status: 'active', board, turn: invite.host_id })
+    .eq('id', inviteId)
+    .eq('opponent_id', uid)
+    .eq('status', 'pending')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeGameInvite(data);
+}
+
+export async function declineGameInvite(inviteId) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  const uid = session.user.id;
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .update({ status: 'declined', turn: null })
+    .eq('id', inviteId)
+    .eq('opponent_id', uid)
+    .eq('status', 'pending')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeGameInvite(data);
+}
+
+export async function dismissFinishedGame(inviteId) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  const uid = session.user.id;
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .delete()
+    .eq('id', inviteId)
+    .or(`host_id.eq.${uid},opponent_id.eq.${uid}`);
+  if (error) throw error;
+  return data || null;
+}
+
+export async function submitTicTacToeMove(invite, index) {
+  const session = await getSession();
+  if (!session) throw new Error('not_authenticated');
+  if (!invite || typeof index !== 'number') throw new Error('invalid_move');
+  const uid = session.user.id;
+  if (invite.status !== 'active') {
+    const err = new Error('match_not_active');
+    err.code = 'match_not_active';
+    throw err;
+  }
+  if (invite.turn && invite.turn !== uid) {
+    const err = new Error('not_your_turn');
+    err.code = 'not_your_turn';
+    throw err;
+  }
+  const board = serializeBoard(invite.board);
+  if (index < 0 || index >= board.length) {
+    const err = new Error('invalid_index');
+    err.code = 'invalid_index';
+    throw err;
+  }
+  if (board[index]) {
+    const err = new Error('cell_taken');
+    err.code = 'cell_taken';
+    throw err;
+  }
+  const mySymbol = uid === invite.hostId ? invite.hostSymbol : invite.opponentSymbol;
+  const nextPlayerId = uid === invite.hostId ? invite.opponentId : invite.hostId;
+  board[index] = mySymbol;
+  const evaluation = evaluateBoard(board);
+  const update = {
+    board,
+    turn: evaluation.winner || evaluation.draw ? null : nextPlayerId,
+    status: evaluation.winner || evaluation.draw ? 'finished' : 'active',
+    winner: evaluation.winner
+      ? mySymbol === invite.hostSymbol
+        ? invite.hostId
+        : invite.opponentId
+      : null,
+  };
+  const { data, error } = await supabase
+    .from('friend_game_invites')
+    .update(update)
+    .eq('id', invite.id)
+    .eq('turn', invite.turn || uid)
+    .eq('status', 'active')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeGameInvite(data);
+}
+
+export function subscribeToGameInvites(userId, handler) {
+  if (!cloudAvailable() || !userId) return null;
+  const channels = [];
+  const hostChannel = supabase
+    .channel(`friend-game-invites-host-${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_game_invites', filter: `host_id=eq.${userId}` }, (payload) => {
+      handler?.(normalizeGamePayload(payload));
+    })
+    .subscribe();
+  channels.push(hostChannel);
+  const opponentChannel = supabase
+    .channel(`friend-game-invites-opponent-${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_game_invites', filter: `opponent_id=eq.${userId}` }, (payload) => {
+      handler?.(normalizeGamePayload(payload));
+    })
+    .subscribe();
+  channels.push(opponentChannel);
+  return () => {
+    channels.forEach((channel) => {
+      try {
+        if (typeof supabase.removeChannel === 'function') {
+          supabase.removeChannel(channel);
+        } else if (channel?.unsubscribe) {
+          channel.unsubscribe();
+        }
+      } catch {}
+    });
+  };
 }

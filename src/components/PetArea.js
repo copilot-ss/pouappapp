@@ -41,7 +41,11 @@ const PetArea = React.forwardRef(function PetArea(
         <View pointerEvents="none" style={styles.visitorWrap}>
           <Text style={styles.visitorLabel}>{visitor.name ? `${visitor.name} ist zu Besuch` : 'Besuch'}</Text>
           <View style={styles.visitorPreview}>
-            <OutfitPreview species={visitor.petType || 'seestern'} equipped={visitor.equipped || {}} />
+            <OutfitPreview
+              species={visitor.petType || 'seestern'}
+              equipped={visitor.equipped || {}}
+              size={140}
+            />
           </View>
         </View>
       ) : null}
@@ -102,9 +106,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(20,184,166,0.6)',
   },
   food: { position: 'absolute', zIndex: 25, elevation: 7, fontSize: 22 },
-  visitorWrap: { position: 'absolute', bottom: -24, right: -36, alignItems: 'center', gap: 4, zIndex: 12 },
+  visitorWrap: { position: 'absolute', top: -20, left: 0, right: 0, alignItems: 'center', gap: 4, zIndex: 12 },
   visitorLabel: { backgroundColor: 'rgba(15,23,42,0.75)', color: '#F9FAFB', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },
-  visitorPreview: { transform: [{ scale: 0.5 }], alignItems: 'center', justifyContent: 'center' },
+  visitorPreview: { alignItems: 'center', justifyContent: 'center', width: 120, height: 120 },
   toast: {
     position: 'absolute',
     top: 8,

@@ -233,7 +233,7 @@ export default function ShopScreen({
           source={DOOR_ANIMATION}
           autoPlay
           loop={false}
-          resizeMode="cover"
+          resizeMode="contain"
           style={styles.doorLottie}
           onAnimationFinish={handleDoorFinish}
         />
@@ -299,7 +299,7 @@ export default function ShopScreen({
       </Animated.View>
 
       <Animated.View
-        style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
+        style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }], opacity: vendorOpacity }]}
         {...sheetPanHandlers}
       > 
         <Pressable onPress={toggleSheet} hitSlop={12} style={styles.sheetHandlePressable}>
@@ -422,12 +422,17 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   doorStage: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '65%',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 32,
     zIndex: 6,
   },
-  doorLottie: { width: '100%', height: '100%' },
+  doorLottie: { width: '82%', height: '100%' },
   headerWrap: {
     paddingHorizontal: 24,
     paddingBottom: 16,

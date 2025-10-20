@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, TextInput, ActivityIndicator, Animated } from 'react-native';
 import OutfitPreview from '../OutfitPreview';
 import { getLevelInfo } from '../../lib/progression';
 import { getSpecies } from '../../domain/species';
@@ -15,6 +15,10 @@ import {
   acceptRequest,
   declineRequest,
   removeFriendship,
+  fetchOpenGameInvites,
+  acceptGameInvite,
+  declineGameInvite,
+  subscribeToGameInvites,
 } from '../../state/cloudFriends';
 
 let Clipboard = null;
@@ -33,6 +37,8 @@ function formatCode(code) {
   return String(code).toUpperCase();
 }
 
+const ONLINE_THRESHOLD_MS = 120 * 1000;
+
 export default function FriendsScreen({
   open,
   onClose,
@@ -40,6 +46,10 @@ export default function FriendsScreen({
   onFriendRemoved = () => {},
   onOpenProfile = () => {},
   selfSnapshot = null,
+  onInviteTicTacToe = () => {},
+  onAcceptTicTacToeInvite = () => {},
+  onDeclineTicTacToeInvite = () => {},
+  ticTacToeStatusByFriend = {},
 }) {
   const [copyFeedback, setCopyFeedback] = React.useState(null);
   // Local offline state
@@ -48,6 +58,8 @@ export default function FriendsScreen({
   const [name, setName] = React.useState('');
   const [codeInput, setCodeInput] = React.useState('');
   const [nameInput, setNameInput] = React.useState('');
+  const [activeTab, setActiveTab] = React.useState('friends');
+  const [addModalOpen, setAddModalOpen] = React.useState(false);
   const localVisitorSnapshot = React.useMemo(() => {
     if (!selfSnapshot) return null;
     const equipped = selfSnapshot.equipped && typeof selfSnapshot.equipped === 'object' ? selfSnapshot.equipped : {};
@@ -65,6 +77,7 @@ export default function FriendsScreen({
   const [cloudProfile, setCloudProfile] = React.useState(null);
   const [cloudFriends, setCloudFriends] = React.useState([]);
   const [requests, setRequests] = React.useState([]);
+  const [gameInvites, setGameInvites] = React.useState([]);
   const [friendRequestError, setFriendRequestError] = React.useState(null);
   const [friendRequestMessage, setFriendRequestMessage] = React.useState(null);
   const [refreshingCloud, setRefreshingCloud] = React.useState(false);
@@ -72,6 +85,114 @@ export default function FriendsScreen({
   const [removalConfirm, setRemovalConfirm] = React.useState(false);
   const [removingFriend, setRemovingFriend] = React.useState(false);
   const [removalError, setRemovalError] = React.useState(null);
+  const ticTacToeStatuses = React.useMemo(
+    () =>
+      ticTacToeStatusByFriend && typeof ticTacToeStatusByFriend === 'object'
+        ? ticTacToeStatusByFriend
+        : {},
+    [ticTacToeStatusByFriend],
+  );
+  const selectedFriendGameStatus = React.useMemo(() => {
+    if (!selectedFriend || !selectedFriend.friendId) return null;
+    return ticTacToeStatuses[selectedFriend.friendId] || null;
+  }, [selectedFriend, ticTacToeStatuses]);
+  const ticTacToeInviteState = React.useMemo(() => {
+    if (!selectedFriend || selectedFriend.kind !== 'cloud') {
+      return { label: 'Zum TicTacToe einladen', disabled: true, hint: null };
+    }
+    if (!session) {
+      return {
+        label: 'Zum TicTacToe einladen',
+        disabled: true,
+        hint: 'Cloud-Anmeldung erforderlich.',
+      };
+    }
+    if (!cloud) {
+      return {
+        label: 'Zum TicTacToe einladen',
+        disabled: true,
+        hint: 'Cloud nicht verfuegbar.',
+      };
+    }
+    let label = 'Zum TicTacToe einladen';
+    let disabled = false;
+    let hint = null;
+    switch (selectedFriendGameStatus) {
+      case 'pending-outgoing':
+        label = 'Warte auf Antwort';
+        disabled = true;
+        hint = null;
+        break;
+      case 'pending-incoming':
+        label = 'Antwort ausstehend';
+        disabled = true;
+        hint = 'Freund hat dich eingeladen.';
+        break;
+      case 'active':
+        label = 'Spiel laeuft';
+        disabled = true;
+        hint = 'Spiel ist bereits aktiv.';
+        break;
+      case 'finished':
+        label = 'Neu herausfordern';
+        disabled = false;
+        hint = 'Vorheriges Spiel beendet.';
+        break;
+      default:
+        break;
+    }
+    return { label, disabled, hint };
+  }, [cloud, selectedFriend, selectedFriendGameStatus, session]);
+  const formatTimestamp = React.useCallback((value) => {
+    if (!value) return 'Unbekannt';
+    const time = new Date(value);
+    if (Number.isNaN(time.getTime())) return 'Unbekannt';
+    return time.toLocaleString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
+  }, []);
+  const cloudFriendsWithStatus = React.useMemo(() => {
+    const now = Date.now();
+    const list = (cloudFriends || []).map((friend) => {
+      const lastSeen = friend.friend_last_seen ? new Date(friend.friend_last_seen).getTime() : 0;
+      const isOnline = !!lastSeen && now - lastSeen <= ONLINE_THRESHOLD_MS;
+      return { ...friend, isOnline, lastSeen };
+    });
+    return list.sort((a, b) => {
+      if (a.isOnline !== b.isOnline) {
+        return a.isOnline ? -1 : 1;
+      }
+      return (a.friend_name || '').localeCompare(b.friend_name || '');
+    });
+  }, [cloudFriends]);
+  const incomingInviteByHostId = React.useMemo(() => {
+    if (!session) return new Map();
+    const uid = session.user?.id;
+    const map = new Map();
+    (gameInvites || []).forEach((inv) => {
+      if (inv && inv.status === 'pending' && inv.opponentId === uid) {
+        map.set(inv.hostId, inv);
+      }
+    });
+    return map;
+  }, [gameInvites, session]);
+  const pendingGameInvites = React.useMemo(() => {
+    if (!cloudFriendsWithStatus || cloudFriendsWithStatus.length === 0) return [];
+    const list = [];
+    cloudFriendsWithStatus.forEach((friend) => {
+      const inv = incomingInviteByHostId.get(friend.friend_id);
+      if (inv) list.push({ ...friend, __invite: inv });
+    });
+    return list;
+  }, [cloudFriendsWithStatus, incomingInviteByHostId]);
+  const inviteCount = requests.length + pendingGameInvites.length;
+  const hasFriendRequests = requests.length > 0;
+  const hasGameInvites = pendingGameInvites.length > 0;
+  const noRequests = !hasFriendRequests && !hasGameInvites;
+  const playInviteBlink = React.useRef(new Animated.Value(1)).current;
   const copyResetRef = React.useRef(null);
   const showCopyMessage = React.useCallback((message) => {
     if (copyResetRef.current) {
@@ -84,12 +205,134 @@ export default function FriendsScreen({
     }, 1200);
   }, [setCopyFeedback]);
   React.useEffect(() => {
+    if (!open || !cloud || !session) return;
+    let cancelled = false;
+    let unsubscribe = null;
+    (async () => {
+      try {
+        const list = await fetchOpenGameInvites();
+        if (!cancelled) setGameInvites(list);
+      } catch {}
+      try {
+        const off = subscribeToGameInvites(session.user.id, (evt) => {
+          if (!evt) return;
+          const item = evt.new || evt.old;
+          if (!item) return;
+          setGameInvites((prev) => {
+            const next = Array.isArray(prev) ? [...prev] : [];
+            const idx = next.findIndex((x) => x.id === item.id);
+            if (evt.eventType === 'DELETE') {
+              if (idx >= 0) next.splice(idx, 1);
+            } else if (idx >= 0) {
+              next[idx] = item;
+            } else {
+              next.unshift(item);
+            }
+            return next;
+          });
+        });
+        unsubscribe = off;
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      try { if (typeof unsubscribe === 'function') unsubscribe(); } catch {}
+    };
+  }, [open, cloud, session]);
+
+  const handleAcceptGameInvite = React.useCallback(async (friend) => {
+    if (!friend || !friend.friend_id) return;
+    const inv = incomingInviteByHostId.get(friend.friend_id);
+    if (!inv) return;
+    try {
+      const updated = await acceptGameInvite(inv.id);
+      setGameInvites((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      onAcceptTicTacToeInvite?.(friend);
+    } catch (error) {
+      if (__DEV__) console.warn('acceptGameInvite failed', error);
+    }
+  }, [incomingInviteByHostId, onAcceptTicTacToeInvite]);
+
+  const handleDeclineGameInvite = React.useCallback(async (friend) => {
+    if (!friend || !friend.friend_id) return;
+    const inv = incomingInviteByHostId.get(friend.friend_id);
+    if (!inv) return;
+    try {
+      const updated = await declineGameInvite(inv.id);
+      setGameInvites((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      onDeclineTicTacToeInvite?.(friend);
+    } catch (error) {
+      if (__DEV__) console.warn('declineGameInvite failed', error);
+    }
+  }, [incomingInviteByHostId, onDeclineTicTacToeInvite]);
+  React.useEffect(() => {
+    if (!hasGameInvites) {
+      playInviteBlink.setValue(1);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(playInviteBlink, {
+          toValue: 0.4,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(playInviteBlink, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+      playInviteBlink.setValue(1);
+    };
+  }, [hasGameInvites, playInviteBlink]);
+  const closeAddModal = React.useCallback(() => {
+    setAddModalOpen(false);
+    setFriendRequestError(null);
+    setCodeInput('');
+    setNameInput('');
+  }, []);
+
+  const handleAdd = async () => {
+    if (!codeInput.trim()) return;
+    if (cloud && session) {
+      setLoading(true);
+      setFriendRequestError(null);
+      setFriendRequestMessage(null);
+      try {
+        await sendFriendRequestByCode(codeInput.trim());
+        setCodeInput('');
+        setNameInput('');
+        setFriendRequestMessage('Anfrage gesendet!');
+        await refreshCloudData({ showSpinner: false });
+        closeAddModal();
+      } catch (error) {
+        setFriendRequestError(normalizeFriendRequestError(error));
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      const list = await addFriend({ code: codeInput.trim(), name: nameInput.trim() });
+      setFriends(list);
+      setCodeInput('');
+      setNameInput('');
+      setFriendRequestError(null);
+      setFriendRequestMessage('Freund hinzugefuegt.');
+      closeAddModal();
+    }
+  };
+  React.useEffect(() => {
     return () => {
       if (copyResetRef.current) {
         clearTimeout(copyResetRef.current);
       }
     };
   }, []);
+  const showFriendCodeCard = !cloud || !session || activeTab !== 'invites';
   const handleCopy = React.useCallback((code) => {
     if (!code) return;
     const clip = Clipboard;
@@ -189,8 +432,10 @@ export default function FriendsScreen({
     if (!open) {
       setSelectedFriend(null);
       resetDetailState();
+      setActiveTab('friends');
+      closeAddModal();
     }
-  }, [open, resetDetailState]);
+  }, [closeAddModal, open, resetDetailState]);
   const openFriendDetail = React.useCallback((friend) => {
     if (!friend) return;
     resetDetailState();
@@ -251,7 +496,7 @@ export default function FriendsScreen({
       if (selectedFriend.kind === 'cloud') {
         await removeFriendship(selectedFriend.friendId);
         await refreshCloudData({ showSpinner: false });
-      } else if (selectedFriend.kind === 'offline') {
+      closeAddModal();
         const list = await removeFriend(selectedFriend.localId);
         setFriends(list);
       }
@@ -267,14 +512,6 @@ export default function FriendsScreen({
       setRemovingFriend(false);
     }
   }, [selectedFriend, refreshCloudData, onFriendRemoved, closeFriendDetail, normalizeFriendRequestError, removeFriendship, removeFriend, setFriends, setFriendRequestMessage]);
-  const formatTimestamp = React.useCallback((value) => {
-    if (!value) return 'Unbekannt';
-    try {
-      return new Date(value).toLocaleString('de-DE');
-    } catch (error) {
-      return 'Unbekannt';
-    }
-  }, []);
 
   if (!open) return null;
   const activeFriendCode = (cloud && session ? cloudProfile?.code : null) || me?.code;
@@ -288,7 +525,8 @@ export default function FriendsScreen({
     if (selectedFriend.kind === 'cloud') {
       const { level } = getLevelInfo(selectedFriend.xp || 0);
       const species = selectedFriend.petType ? getSpecies(selectedFriend.petType) : null;
-      selectedFriendMeta = `Lv. ${level} - ${species ? species.name : 'Unbekanntes Tier'}`;
+      const statusLabel = selectedFriend.isOnline ? 'Online' : 'Offline';
+      selectedFriendMeta = `Lv. ${level} - ${species ? species.name : 'Unbekanntes Tier'} - ${statusLabel}`;
       selectedFriendVisitPayload = {
         kind: 'cloud',
         id: selectedFriend.friendId,
@@ -302,31 +540,6 @@ export default function FriendsScreen({
       selectedFriendMeta = 'Offline-Freund';
     }
   }
-  const handleAdd = async () => {
-    if (!codeInput.trim()) return;
-    if (cloud && session) {
-      setLoading(true);
-      setFriendRequestError(null);
-      setFriendRequestMessage(null);
-      try {
-        await sendFriendRequestByCode(codeInput.trim());
-        setCodeInput('');
-        setNameInput('');
-        setFriendRequestMessage('Anfrage gesendet!');
-        await refreshCloudData({ showSpinner: false });
-      } catch (error) {
-        setFriendRequestError(normalizeFriendRequestError(error));
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      const list = await addFriend({ code: codeInput.trim(), name: nameInput.trim() });
-      setFriends(list);
-      setCodeInput('');
-      setNameInput('');
-    }
-  };
-
   const handleRemove = async (id) => {
     if (cloud && session) {
       // Removing cloud friendships would require an RPC; not implemented here.
@@ -373,116 +586,140 @@ export default function FriendsScreen({
         </View>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Freundescode</Text>
-          <View style={styles.codeCard}>
-            <Text style={styles.code}>{formattedFriendCode}</Text>
-            <Pressable
-              style={[styles.copyBtn, copyDisabled && styles.refreshBtnDisabled]}
-              onPress={() => handleCopy(activeFriendCode)}
-              disabled={copyDisabled}
-            >
-              <Text style={styles.copyBtnText}>Kopieren</Text>
-            </Pressable>
-          </View>
-          {copyFeedback ? <Text style={styles.copyFeedback}>{copyFeedback}</Text> : null}
-          <Text style={styles.hint}>Teile diesen Code, damit dich Freunde hinzufuegen koennen.</Text>
-        </View>
-
-        <Text style={styles.sectionTitle}>Freund hinzufuegen</Text>
-        <View style={styles.card}>
-          <Text style={styles.label}>Code</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="z.B. ABC123"
-            value={codeInput}
-            autoCapitalize="characters"
-            onChangeText={setCodeInput}
-            returnKeyType="next"
-          />
-          <Pressable style={styles.primaryBtn} onPress={handleAdd}>
-            <Text style={styles.primaryBtnText}>{cloud && session ? 'Anfrage senden' : 'Hinzufuegen (offline)'}</Text>
-          </Pressable>
-        </View>
-        {friendRequestMessage ? <Text style={styles.statusSuccess}>{friendRequestMessage}</Text> : null}
-
         {cloud && session ? (
           <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Anfragen</Text>
+            <View style={styles.tabRow}>
               <Pressable
-                style={[styles.refreshBtn, (refreshingCloud || loading) && styles.refreshBtnDisabled]}
-                disabled={refreshingCloud || loading}
-                onPress={() => refreshCloudData({ showSpinner: true })}
+                style={[styles.tabButton, activeTab === 'friends' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('friends')}
               >
-                <Text style={styles.refreshBtnText}>{refreshingCloud ? 'Aktualisiere...' : 'Neu laden'}</Text>
+                <Text style={[styles.tabButtonText, activeTab === 'friends' && styles.tabButtonTextActive]}>
+                  Freunde
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.tabButton, activeTab === 'invites' && styles.tabButtonActive]}
+                onPress={() => setActiveTab('invites')}
+              >
+                <View style={styles.tabButtonRow}>
+                  <Text style={[styles.tabButtonText, activeTab === 'invites' && styles.tabButtonTextActive]}>
+                    Anfragen
+                  </Text>
+                  {inviteCount > 0 ? (
+                    <View style={styles.tabBadge}>
+                      <Text style={styles.tabBadgeText}>{inviteCount}</Text>
+                    </View>
+                  ) : null}
+                </View>
               </Pressable>
             </View>
-            <View style={{ gap: 10 }}>
-              {requests.length === 0 && (
-                <Text style={styles.hint}>Keine offenen Anfragen.</Text>
-              )}
-              {requests.map((r) => (
-                <View key={r.id} style={styles.friendRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.friendName}>{r.requester_name || 'Unbekannt'}</Text>
-                    <Text style={styles.friendCode}>{r.requester_code}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <Pressable style={styles.primaryBtn} onPress={() => handleAccept(r.id)}>
-                      <Text style={styles.primaryBtnText}>Annehmen</Text>
-                    </Pressable>
-                    <Pressable style={styles.removeBtn} onPress={() => handleDecline(r.id)}>
-                      <Text style={styles.removeBtnText}>Ablehnen</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.sectionTitle}>Deine Freunde</Text>
-            <View style={{ gap: 10 }}>
-              {cloudFriends.length === 0 && (
-                <Text style={styles.hint}>Noch keine Freunde angenommen.</Text>
-              )}
-              {cloudFriends.map((f) => {
-                const { level } = getLevelInfo(f.friend_xp || 0);
-                const species = f.friend_pet_type ? getSpecies(f.friend_pet_type) : null;
-                const meta = `Lv. ${level} - ${species ? species.name : 'Unbekannt'}`;
-                return (
-                  <Pressable
-                    key={f.friend_id}
-                    style={styles.friendRow}
-                    onPress={() =>
-                      openFriendDetail({
-                        kind: 'cloud',
-                        friendId: f.friend_id,
-                        displayName: f.friend_name || 'Unbenannt',
-                        code: f.friend_code,
-                        xp: typeof f.friend_xp === 'number' ? f.friend_xp : 0,
-                        petType: f.friend_pet_type || null,
-                        equipped: f.friend_equipped || {},
-                        lastSeen: f.friend_last_seen || null,
-                      })
-                    }
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.friendName}>{f.friend_name || 'Unbenannt'}</Text>
-                      <Text style={styles.friendMeta}>{meta}</Text>
-                      <Text style={styles.friendCode}>{f.friend_code}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
+
+            {activeTab === 'friends' ? (
+              <View style={styles.friendList}>
+                <Text style={styles.sectionTitle}>Deine Freunde</Text>
+                {cloudFriendsWithStatus.length === 0 ? (
+                  <Text style={styles.hint}>Noch keine Freunde angenommen.</Text>
+                ) : (
+                  cloudFriendsWithStatus.map((f) => {
+                    const { level } = getLevelInfo(f.friend_xp || 0);
+                    const species = f.friend_pet_type ? getSpecies(f.friend_pet_type) : null;
+                    const meta = `Lv. ${level} - ${species ? species.name : 'Unbekannt'}`;
+                    return (
+                      <Pressable
+                        key={f.friend_id}
+                        style={styles.friendRow}
+                        onPress={() =>
+                          openFriendDetail({
+                            kind: 'cloud',
+                            friendId: f.friend_id,
+                            displayName: f.friend_name || 'Unbenannt',
+                            code: f.friend_code,
+                            xp: typeof f.friend_xp === 'number' ? f.friend_xp : 0,
+                            petType: f.friend_pet_type || null,
+                            equipped: f.friend_equipped || {},
+                            lastSeen: f.friend_last_seen || null,
+                            isOnline: f.isOnline,
+                          })
+                        }
+                      >
+                        <View style={styles.friendRowBody}>
+                          <View style={styles.friendRowTitle}>
+                            <View style={[styles.onlineDot, f.isOnline && styles.onlineDotActive]} />
+                            <Text style={styles.friendName}>{f.friend_name || 'Unbenannt'}</Text>
+                          </View>
+                          <Text style={styles.friendMeta}>{meta}</Text>
+                          <Text style={styles.friendCode}>{f.friend_code}</Text>
+                          {!f.isOnline && f.friend_last_seen ? (
+                            <Text style={styles.friendLastSeen}>
+                              Zuletzt online: {formatTimestamp(f.friend_last_seen)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+            ) : (
+              <View style={styles.requestList}>
+                <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Anfragen</Text>
+                {noRequests ? (
+                  <Text style={styles.requestEmpty}>Keine Anfragen.</Text>
+                ) : (
+                  <>
+                    {pendingGameInvites.map((friend) => (
+                      <Animated.View
+                        key={`game-${friend.friend_id}`}
+                        style={[styles.requestRow, styles.playInviteRow, { opacity: playInviteBlink }]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.friendName}>{friend.friend_name || 'Unbenannt'}</Text>
+                          <Text style={styles.requestMeta}>TicTacToe-Anfrage</Text>
+                        </View>
+                        <View style={styles.requestActions}>
+                          <Pressable
+                            style={styles.primaryBtn}
+                            onPress={() => handleAcceptGameInvite(friend)}
+                          >
+                            <Text style={styles.primaryBtnText}>Annehmen</Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.removeBtn}
+                            onPress={() => handleDeclineGameInvite(friend)}
+                          >
+                            <Text style={styles.removeBtnText}>Ablehnen</Text>
+                          </Pressable>
+                        </View>
+                      </Animated.View>
+                    ))}
+                    {requests.map((r) => (
+                      <View key={`friend-${r.id}`} style={styles.requestRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.friendName}>{r.requester_name || 'Unbekannt'}</Text>
+                          <Text style={styles.requestMeta}>Freundschaftsanfrage</Text>
+                        </View>
+                        <View style={styles.requestActions}>
+                          <Pressable style={styles.primaryBtn} onPress={() => handleAccept(r.id)}>
+                            <Text style={styles.primaryBtnText}>Annehmen</Text>
+                          </Pressable>
+                          <Pressable style={styles.removeBtn} onPress={() => handleDecline(r.id)}>
+                            <Text style={styles.removeBtnText}>Ablehnen</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
           </>
         ) : (
-          <>
+          <View style={styles.friendList}>
             <Text style={styles.sectionTitle}>Deine Freunde</Text>
-            <View style={{ gap: 10 }}>
-              {friends.length === 0 && (
-                <Text style={styles.hint}>Noch keine Freunde. Fuege jemanden per Code hinzu.</Text>
-              )}
-              {friends.map((f) => {
+            {friends.length === 0 ? (
+              <Text style={styles.hint}>Noch keine Freunde. Fuege jemanden per Code hinzu.</Text>
+            ) : (
+              friends.map((f) => {
                 const displayName = f.name || 'Unbenannt';
                 const code = formatCode(f.code);
                 return (
@@ -495,21 +732,57 @@ export default function FriendsScreen({
                         localId: f.id,
                         displayName,
                         code,
+                        isOnline: false,
                       })
                     }
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.friendName}>{displayName}</Text>
+                    <View style={styles.friendRowBody}>
+                      <View style={styles.friendRowTitle}>
+                        <View style={styles.onlineDot} />
+                        <Text style={styles.friendName}>{displayName}</Text>
+                      </View>
                       <Text style={styles.friendMeta}>Offline-Freund</Text>
                       <Text style={styles.friendCode}>{code}</Text>
                     </View>
                   </Pressable>
                 );
-              })}
-            </View>
-          </>
+              })
+            )}
+          </View>
         )}
-        {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
+
+        {showFriendCodeCard ? (
+          <>
+            <View style={styles.sectionSpacer} />
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Dein Freundescode</Text>
+              <View style={styles.codeCard}>
+                <Text style={styles.code}>{formattedFriendCode}</Text>
+                <Pressable
+                  style={[styles.copyBtn, copyDisabled && styles.refreshBtnDisabled]}
+                  onPress={() => handleCopy(activeFriendCode)}
+                  disabled={copyDisabled}
+                >
+                  <Text style={styles.copyBtnText}>Kopieren</Text>
+                </Pressable>
+              </View>
+              {copyFeedback ? <Text style={styles.copyFeedback}>{copyFeedback}</Text> : null}
+              <Text style={styles.hint}>Teile den Code, damit dich Freunde hinzufuegen koennen.</Text>
+              <Pressable
+                style={styles.addFriendBtn}
+                onPress={() => {
+                  setFriendRequestError(null);
+                  setFriendRequestMessage(null);
+                  setAddModalOpen(true);
+                }}
+              >
+                <Text style={styles.addFriendBtnText}>Freund hinzufuegen</Text>
+              </Pressable>
+            </View>
+            {friendRequestMessage ? <Text style={styles.statusSuccess}>{friendRequestMessage}</Text> : null}
+          </>
+        ) : null}
+        {loading && <ActivityIndicator style={{ marginTop: showFriendCodeCard ? 8 : 24 }} />}
       </ScrollView>
       {selectedFriend && (
         <View style={styles.detailOverlay} pointerEvents="auto">
@@ -544,6 +817,26 @@ export default function FriendsScreen({
             )}
             {removalError ? <Text style={styles.statusError}>{removalError}</Text> : null}
             <View style={styles.detailActions}>
+              {selectedFriend?.kind === 'cloud' ? (
+                <>
+                  <Pressable
+                    style={[
+                      styles.gameInviteBtn,
+                      ticTacToeInviteState.disabled && styles.gameInviteBtnDisabled,
+                    ]}
+                    onPress={() => {
+                      if (ticTacToeInviteState.disabled) return;
+                      onInviteTicTacToe?.(selectedFriend);
+                    }}
+                    disabled={ticTacToeInviteState.disabled}
+                  >
+                    <Text style={styles.gameInviteBtnText}>{ticTacToeInviteState.label}</Text>
+                  </Pressable>
+                  {ticTacToeInviteState.hint ? (
+                    <Text style={styles.detailHint}>{ticTacToeInviteState.hint}</Text>
+                  ) : null}
+                </>
+              ) : null}
               {selectedFriendVisitPayload && session ? (
                 <Pressable style={styles.visitBtn} onPress={() => handleVisitFriend(selectedFriendVisitPayload)}>
                   <Text style={styles.visitBtnText}>Besuchen</Text>
@@ -563,10 +856,54 @@ export default function FriendsScreen({
                 </Pressable>
               )}
             </View>
+      </View>
+    </View>
+  )}
+      {addModalOpen && (
+        <View style={styles.addOverlay} pointerEvents="auto">
+          <View style={styles.addCard}>
+            <View style={styles.addHeader}>
+              <Text style={styles.addTitle}>Freund hinzufuegen</Text>
+              <Pressable style={styles.addCloseBtn} onPress={closeAddModal}>
+                <Text style={styles.addCloseText}>{String.fromCodePoint(0x2715)}</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.label}>Code</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="z.B. ABC123"
+              value={codeInput}
+              autoCapitalize="characters"
+              onChangeText={setCodeInput}
+            />
+            {(!cloud || !session) && (
+              <>
+                <Text style={styles.label}>Name (optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Freund"
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                />
+              </>
+            )}
+            {friendRequestError ? <Text style={styles.statusError}>{friendRequestError}</Text> : null}
+            <View style={styles.addActions}>
+              <Pressable style={styles.addPrimaryBtn} onPress={handleAdd}>
+                <Text style={styles.addPrimaryText}>
+                  {cloud && session ? 'Anfrage senden' : 'Hinzufuegen'}
+                </Text>
+              </Pressable>
+              <Pressable style={styles.addSecondaryBtn} onPress={closeAddModal}>
+                <Text style={styles.addSecondaryText}>Abbrechen</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       )}
-      {friendRequestError ? <Text style={[styles.statusError, { position: 'absolute', bottom: 12, left: 12 }]}>{friendRequestError}</Text> : null}
+      {!addModalOpen && friendRequestError ? (
+        <Text style={[styles.statusError, { position: 'absolute', bottom: 12, left: 12 }]}>{friendRequestError}</Text>
+      ) : null}
     </View>
   );
 }
@@ -602,10 +939,14 @@ const styles = StyleSheet.create({
   profileLinkText: { color: '#0369A1', fontWeight: '700', fontSize: 13 },
   content: { paddingHorizontal: 12, paddingBottom: 24, paddingTop: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginTop: 12, marginBottom: 8, color: '#111827' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 8 },
-  refreshBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: '#111827' },
-  refreshBtnDisabled: { opacity: 0.5 },
-  refreshBtnText: { fontSize: 12, fontWeight: '700', color: '#111827' },
+  tabRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, marginTop: 4 },
+  tabButton: { flex: 1, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5F5', backgroundColor: '#F8FAFC', paddingVertical: 10, alignItems: 'center' },
+  tabButtonActive: { backgroundColor: '#111827', borderColor: '#111827' },
+  tabButtonRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabButtonText: { fontSize: 13, fontWeight: '700', color: '#1F2937' },
+  tabButtonTextActive: { color: '#FFFFFF' },
+  tabBadge: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, backgroundColor: '#F472B6', alignItems: 'center' },
+  tabBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
   codeCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E0E7FF', backgroundColor: '#EEF2FF', borderRadius: 14, padding: 12, gap: 12 },
   copyBtn: { backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
   copyBtnText: { color: '#FFFFFF', fontWeight: '700', letterSpacing: 0.5, fontSize: 13 },
@@ -617,14 +958,31 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', letterSpacing: 0.4 },
   code: { fontSize: 22, fontWeight: '800', letterSpacing: 2, color: '#111827' },
   hint: { color: '#6B7280', fontSize: 12 },
-  friendRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', padding: 10, borderRadius: 10, gap: 12 },
+  friendList: { gap: 10 },
+  friendRow: { borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', padding: 14, borderRadius: 12, gap: 8 },
+  friendRowBody: { gap: 6, flex: 1 },
+  friendRowTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  onlineDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#D1D5DB' },
+  onlineDotActive: { backgroundColor: '#22C55E' },
   friendName: { fontSize: 14, fontWeight: '700', color: '#111827' },
   friendMeta: { fontSize: 12, fontWeight: '500', color: '#4B5563' },
+  friendLastSeen: { fontSize: 11, color: '#6B7280' },
   statusSuccess: { marginTop: 6, color: '#10B981', fontSize: 12, fontWeight: '600' },
   statusError: { marginTop: 6, color: '#DC2626', fontSize: 12, fontWeight: '600' },
   friendCode: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  refreshBtnDisabled: { opacity: 0.5 },
+  requestList: { gap: 12 },
+  requestEmpty: { color: '#6B7280', fontSize: 12, textAlign: 'center', marginTop: 16 },
+  requestRow: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', padding: 12, borderRadius: 12, gap: 12 },
+  requestMeta: { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  requestActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  playInviteRow: { borderColor: '#93C5FD', backgroundColor: '#EFF6FF' },
+  playInviteIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#1D4ED8' },
   removeBtn: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8 },
   removeBtnText: { fontSize: 12, fontWeight: '800', color: '#111827' },
+  sectionSpacer: { height: 16 },
+  addFriendBtn: { marginTop: 6, backgroundColor: '#111827', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  addFriendBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   detailOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(17,24,39,0.55)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, zIndex: 500 },
   detailCard: { width: '100%', maxWidth: 360, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, gap: 12, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
   detailHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -637,12 +995,25 @@ const styles = StyleSheet.create({
   detailPreview: { borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB', borderRadius: 16, alignItems: 'center', justifyContent: 'center', transform: [{ scale: 0.8 }] },
   detailEmptyPreview: { borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB', borderRadius: 16, paddingVertical: 24, alignItems: 'center' },
   detailActions: { gap: 10, marginTop: 6 },
+  gameInviteBtn: { backgroundColor: '#0EA5E9', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  gameInviteBtnDisabled: { opacity: 0.5 },
+  gameInviteBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  detailHint: { fontSize: 11, color: '#6B7280', marginTop: 4 },
   visitBtn: { backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   visitBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   detailRemoveBtn: { borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#DC2626' },
   detailRemoveText: { fontSize: 13, fontWeight: '700', color: '#DC2626' },
   removeConfirmBtn: { borderRadius: 10, paddingVertical: 10, alignItems: 'center', backgroundColor: '#DC2626' },
   removeConfirmText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  addOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(17,24,39,0.55)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, zIndex: 510 },
+  addCard: { width: '100%', maxWidth: 340, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 18, gap: 14, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
+  addHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  addTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  addCloseBtn: { width: 32, height: 32, borderRadius: 12, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' },
+  addCloseText: { fontSize: 18, fontWeight: '700', color: '#111827' },
+  addActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  addPrimaryBtn: { flex: 1, backgroundColor: '#111827', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  addPrimaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  addSecondaryBtn: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#CBD5F5', paddingVertical: 10, alignItems: 'center', backgroundColor: '#F8FAFC' },
+  addSecondaryText: { color: '#1F2937', fontSize: 14, fontWeight: '700' },
 });
-
-

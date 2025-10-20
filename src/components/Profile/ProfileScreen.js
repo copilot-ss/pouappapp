@@ -388,18 +388,7 @@ export default function ProfileScreen({
             >
               <Text style={styles.primaryBtnText}>Speichern</Text>
             </Pressable>
-          ) : (
-            <Text style={styles.lockedNote}>Anzeigename kann nicht mehr geändert werden.</Text>
-          )}
-          {cloud && session && (
-            <Pressable
-              style={[styles.secondaryBtn, loading && styles.disabledBtn, { marginTop: 8 }]}
-              onPress={handleSignOut}
-              disabled={loading}
-            >
-              <Text style={styles.secondaryBtnText}>Abmelden</Text>
-            </Pressable>
-          )}
+          ) : null}
         </View>
 
         <View style={styles.card}>
@@ -424,9 +413,13 @@ export default function ProfileScreen({
         {errorMessage && <Text style={styles.statusError}>{errorMessage}</Text>}
         {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
         {cloud && session && (
-          <Text style={[styles.hint, { marginTop: 16 }]}>
-            Tipp: Du kannst dieses Profil auch ueber das Zahnrad-Menue oder dein Level erreichen.
-          </Text>
+          <Pressable
+            style={[styles.secondaryBtn, loading && styles.disabledBtn, { alignSelf: 'center', marginTop: 24 }]}
+            onPress={handleSignOut}
+            disabled={loading}
+          >
+            <Text style={styles.secondaryBtnText}>Abmelden</Text>
+          </Pressable>
         )}
       </ScrollView>
     </View>
@@ -449,8 +442,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 14,
+    paddingTop: 36,
+    paddingBottom: 18,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },

@@ -144,6 +144,66 @@ drop policy if exists friend_visits_delete on public.friend_visits;
 create policy friend_visits_delete on public.friend_visits
   for delete using (auth.uid() = host_id or auth.uid() = visitor_id);
 
+-- Friend game invites (multiplayer sessions / challenges)
+do $$
+begin
+  create type public.friend_game_status as enum ('pending','active','declined','cancelled','finished');
+exception
+  when duplicate_object then null;
+end $$;
+
+create table if not exists public.friend_game_invites (
+  id uuid primary key default gen_random_uuid(),
+  host_id uuid not null references auth.users(id) on delete cascade,
+  opponent_id uuid not null references auth.users(id) on delete cascade,
+  game_type text not null default 'tictactoe',
+  status public.friend_game_status not null default 'pending',
+  board jsonb not null default '[]'::jsonb,
+  turn uuid,
+  winner uuid,
+  host_symbol text not null default 'X',
+  opponent_symbol text not null default 'O',
+  host_name text,
+  opponent_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function public.set_friend_game_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_friend_game_updated_at on public.friend_game_invites;
+create trigger trg_friend_game_updated_at
+before update on public.friend_game_invites
+for each row
+execute function public.set_friend_game_updated_at();
+
+alter table public.friend_game_invites enable row level security;
+
+drop policy if exists friend_game_invites_select on public.friend_game_invites;
+create policy friend_game_invites_select on public.friend_game_invites
+  for select using (auth.uid() = host_id or auth.uid() = opponent_id);
+
+drop policy if exists friend_game_invites_insert on public.friend_game_invites;
+create policy friend_game_invites_insert on public.friend_game_invites
+  for insert with check (auth.uid() = host_id);
+
+drop policy if exists friend_game_invites_update on public.friend_game_invites;
+create policy friend_game_invites_update on public.friend_game_invites
+  for update using (auth.uid() = host_id or auth.uid() = opponent_id)
+  with check (auth.uid() = host_id or auth.uid() = opponent_id);
+
+drop policy if exists friend_game_invites_delete on public.friend_game_invites;
+create policy friend_game_invites_delete on public.friend_game_invites
+  for delete using (auth.uid() = host_id or auth.uid() = opponent_id);
+
 create or replace function public.remove_friendship(target_id uuid)
 returns void
 language plpgsql
