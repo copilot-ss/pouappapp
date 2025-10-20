@@ -2,18 +2,21 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { clamp } from '../lib/utils';
 
-export default function StatBar({ label, value, color = '#6CC24A', compact = false, hideValue = false }) {
+function StatBar({ label, value, color = '#6CC24A', compact = false, hideValue = false }) {
   const pct = clamp(value);
+  const widthStyle = React.useMemo(() => ({ width: `${pct}%`, backgroundColor: color }), [pct, color]);
+  const rounded = React.useMemo(() => Math.round(pct), [pct]);
   return (
     <View style={styles.row}>
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.outer, compact && styles.outerCompact]}>
-        <View style={[styles.inner, { width: `${pct}%`, backgroundColor: color }]} />
+        <View style={[styles.inner, widthStyle]} />
       </View>
-      {!hideValue && <Text style={styles.value}>{Math.round(pct)}</Text>}
+      {!hideValue && <Text style={styles.value}>{rounded}</Text>}
     </View>
   );
 }
+export default React.memo(StatBar);
 
 const styles = StyleSheet.create({
   row: {

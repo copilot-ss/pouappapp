@@ -5,7 +5,7 @@ import { cloneEquipped, EMPTY_EQUIPPED } from '../lib/outfit';
 
 const BASE_SIZE = 340;
 
-export default function OutfitPreview({ species = 'seestern', equipped, size = BASE_SIZE }) {
+function OutfitPreview({ species = 'seestern', equipped, size = BASE_SIZE }) {
   const data = cloneEquipped(equipped || EMPTY_EQUIPPED);
   const scale = size / BASE_SIZE;
 
@@ -24,6 +24,7 @@ export default function OutfitPreview({ species = 'seestern', equipped, size = B
     </View>
   );
 }
+export default React.memo(OutfitPreview);
 
 const styles = StyleSheet.create({
   frame: {

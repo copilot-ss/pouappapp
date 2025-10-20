@@ -115,7 +115,7 @@ export function useAvatarMotion(scaleRef) {
   };
 }
 
-export default function PetAvatar({ scaleRef, species = 'seestern', motion }) {
+function PetAvatar({ scaleRef, species = 'seestern', motion }) {
   const motionData = motion ?? useAvatarMotion(scaleRef);
   const { transforms, wiggleValue, floatValue, breatheValue } = motionData;
 
@@ -129,6 +129,7 @@ export default function PetAvatar({ scaleRef, species = 'seestern', motion }) {
     </WrapperComponent>
   );
 }
+export default React.memo(PetAvatar);
 
 function Starfish({ wiggleValue }) {
   const arms = [0, 72, 144, 216, 288];

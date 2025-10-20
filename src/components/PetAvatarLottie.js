@@ -1,66 +1,63 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { Platform, UIManager, StyleSheet, Animated, Text } from 'react-native';
-import LottieView from './LottieView';
-import PetAvatar, { useAvatarMotion } from './PetAvatar';
-import OutfitLayer from './OutfitLayer';
+import React, { useEffect, useMemo, useRef } from "react";
+import { Platform, UIManager, StyleSheet, Animated, Text } from "react-native";
+import LottieView from "./LottieView";
+import PetAvatar, { useAvatarMotion } from "./PetAvatar";
+import OutfitLayer from "./OutfitLayer";
 
 const AVATAR_SIZE = 340;
 
 const LOTTIE_VARIANTS = {
   seestern: {
-    idle: () => require('../../assets/starfish_idle.json'),
-    happy: () => require('../../assets/starfish_cute.json'),
-    base: () => require('../../assets/starfish_plain.json'),
-    sleep: () => require('../../assets/starfish_idle.json'),
+    idle: () => require("../../assets/starfish_idle.json"),
+    happy: () => require("../../assets/starfish_cute.json"),
+    base: () => require("../../assets/starfish_plain.json"),
+    sleep: () => require("../../assets/starfish_idle.json"),
   },
   schildkroete: {
-    idle: () => require('../../assets/schildkroete_idle.json'),
-    happy: () => require('../../assets/schildkroete_idle.json'),
-    base: () => require('../../assets/schildkroete_idle.json'),
-    sleep: () => require('../../assets/schildkroete_idle.json'),
+    idle: () => require("../../assets/schildkroete_idle.json"),
+    happy: () => require("../../assets/schildkroete_idle.json"),
+    base: () => require("../../assets/schildkroete_idle.json"),
+    sleep: () => require("../../assets/schildkroete_idle.json"),
   },
   pinguin: {
-    idle: () => require('../../assets/pinguin_idle.json'),
-    happy: () => require('../../assets/pinguin_idle.json'),
-    base: () => require('../../assets/pinguin_idle.json'),
-    sleep: () => require('../../assets/pinguin_idle.json'),
+    idle: () => require("../../assets/pinguin_idle.json"),
+    happy: () => require("../../assets/pinguin_idle.json"),
+    base: () => require("../../assets/pinguin_idle.json"),
+    sleep: () => require("../../assets/pinguin_idle.json"),
   },
   fisch: {
-    idle: () => require('../../assets/fisch_idle.json'),
-    happy: () => require('../../assets/fisch_idle.json'),
-    base: () => require('../../assets/fisch_idle.json'),
-    sleep: () => require('../../assets/fisch_idle.json'),
+    idle: () => require("../../assets/fisch_idle.json"),
+    happy: () => require("../../assets/fisch_idle.json"),
+    base: () => require("../../assets/fisch_idle.json"),
+    sleep: () => require("../../assets/fisch_idle.json"),
   },
   seepferd: {
-    idle: () => require('../../assets/seepferd_idle.json'),
-    happy: () => require('../../assets/seepferd_idle.json'),
-    base: () => require('../../assets/seepferd_idle.json'),
-    sleep: () => require('../../assets/seepferd_idle.json'),
+    idle: () => require("../../assets/seepferd_idle.json"),
+    happy: () => require("../../assets/seepferd_idle.json"),
+    base: () => require("../../assets/seepferd_idle.json"),
+    sleep: () => require("../../assets/seepferd_idle.json"),
   },
   delfin: {
-    idle: () => require('../../assets/delfin_idle.json'),
-    happy: () => require('../../assets/delfin_idle.json'),
-    base: () => require('../../assets/delfin_idle.json'),
-    sleep: () => require('../../assets/delfin_idle.json'),
+    idle: () => require("../../assets/delfin_idle.json"),
+    happy: () => require("../../assets/delfin_idle.json"),
+    base: () => require("../../assets/delfin_idle.json"),
+    sleep: () => require("../../assets/delfin_idle.json"),
   },
   qualle: {
-    idle: () => require('../../assets/qualle_idle.json'),
-    happy: () => require('../../assets/qualle_idle.json'),
-    base: () => require('../../assets/qualle_idle.json'),
-    sleep: () => require('../../assets/qualle_idle.json'),
+    idle: () => require("../../assets/qualle_idle.json"),
+    happy: () => require("../../assets/qualle_idle.json"),
+    base: () => require("../../assets/qualle_idle.json"),
+    sleep: () => require("../../assets/qualle_idle.json"),
   },
   krabbe: {
-    // Temporär auf Standardanimation, bis krabbe_idle.json vorhanden ist
-    idle: () => require('../../assets/pet_idle.json'),
-    happy: () => require('../../assets/pet_idle.json'),
-    base: () => require('../../assets/pet_idle.json'),
-    sleep: () => require('../../assets/pet_idle.json'),
+    idle: () => require("../../assets/krabbe_idle.json"),
+    happy: () => require("../../assets/krabbe_idle.json"),
+    base: () => require("../../assets/krabbe_idle.json"),
+    sleep: () => require("../../assets/krabbe_idle.json"),
   },
 };
 
-
-
-const DEFAULT_IDLE = () => require('../../assets/pet_idle.json');
+const DEFAULT_IDLE = () => require("../../assets/pet_idle.json");
 const DEFAULT_VARIANTS = {
   idle: DEFAULT_IDLE,
   base: DEFAULT_IDLE,
@@ -71,8 +68,8 @@ const DEFAULT_VARIANTS = {
 function hasNativeLottie() {
   try {
     return !!(
-      UIManager?.getViewManagerConfig?.('LottieAnimationView') ||
-      UIManager?.getViewManagerConfig?.('RNCAnimatedLottieView')
+      UIManager?.getViewManagerConfig?.("LottieAnimationView") ||
+      UIManager?.getViewManagerConfig?.("RNCAnimatedLottieView")
     );
   } catch {
     return false;
@@ -85,9 +82,9 @@ export default function PetAvatarLottie({ mood, isSleeping, isWashing, scaleRef,
     const loaders = { ...DEFAULT_VARIANTS, ...variants };
 
     const sequence = [];
-    if (isSleeping) sequence.push('sleep');
-    if (emotion === 'tap' || emotion === 'play' || emotion === 'eat') sequence.push('happy');
-    sequence.push('idle', 'base');
+    if (isSleeping) sequence.push("sleep");
+    if (emotion === "eat" || emotion === "play" || emotion === "tap") sequence.push("happy");
+    sequence.push("idle", "base");
 
     for (const key of sequence) {
       const loader = loaders[key];
@@ -109,7 +106,7 @@ export default function PetAvatarLottie({ mood, isSleeping, isWashing, scaleRef,
   const heartY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (emotion === 'eat' || emotion === 'play' || emotion === 'tap') {
+    if (emotion === "eat" || emotion === "play" || emotion === "tap") {
       heartOpacity.stopAnimation();
       heartY.stopAnimation();
       heartOpacity.setValue(0);
@@ -124,7 +121,7 @@ export default function PetAvatarLottie({ mood, isSleeping, isWashing, scaleRef,
   }, [emotion, heartOpacity, heartY]);
 
   const motion = useAvatarMotion(scaleRef);
-  const canUseLottie = Platform.OS !== 'web' && hasNativeLottie() && !!lottieSource;
+  const canUseLottie = Platform.OS !== "web" && hasNativeLottie() && !!lottieSource;
 
   const wrapperTransforms = canUseLottie ? (scaleRef ? [{ scale: scaleRef }] : []) : motion.transforms;
 
@@ -147,18 +144,7 @@ export default function PetAvatarLottie({ mood, isSleeping, isWashing, scaleRef,
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', width: AVATAR_SIZE, height: AVATAR_SIZE },
-  heart: { position: 'absolute', top: AVATAR_SIZE / 2 - 30, fontSize: 26, color: '#EF4444' },
-  zzz: { position: 'absolute', top: 28, right: 48, fontSize: 18, color: '#6B7280' },
+  wrap: { alignItems: "center", justifyContent: "center", width: AVATAR_SIZE, height: AVATAR_SIZE },
+  heart: { position: "absolute", top: AVATAR_SIZE / 2 - 30, fontSize: 26, color: "#EF4444" },
+  zzz: { position: "absolute", top: 28, right: 48, fontSize: 18, color: "#6B7280" },
 });
-
-
-
-
-
-
-
-
-
-
-

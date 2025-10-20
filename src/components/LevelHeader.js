@@ -7,7 +7,7 @@ function rainbowHueForLevel(level) {
   return ((level - 1) * 60) % 360; // 0,60,120,180,240,300, ...
 }
 
-export default function LevelHeader({ levelInfo, onPress }) {
+function LevelHeader({ levelInfo, onPress }) {
   const { level, percent } = levelInfo || { level: 1, percent: 0 };
   const t = Math.max(0, Math.min(1, (percent || 0) / 100));
   const h0 = rainbowHueForLevel(level);
@@ -46,6 +46,7 @@ export default function LevelHeader({ levelInfo, onPress }) {
 
   return <View style={styles.wrap}>{content}</View>;
 }
+export default React.memo(LevelHeader);
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 4 },

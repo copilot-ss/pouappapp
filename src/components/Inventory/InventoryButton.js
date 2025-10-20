@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, Text, StyleSheet, View } from 'react-native';
 
-export default function InventoryButton({ onPress }) {
+function InventoryButton({ onPress }) {
   return (
     <View style={styles.row}>
       <Pressable onPress={onPress} style={styles.btn} hitSlop={8}>
@@ -10,6 +10,7 @@ export default function InventoryButton({ onPress }) {
     </View>
   );
 }
+export default React.memo(InventoryButton);
 
 const styles = StyleSheet.create({
   row: { alignItems: 'flex-start', paddingHorizontal: 12, marginBottom: 6 },
@@ -26,4 +27,3 @@ const styles = StyleSheet.create({
   },
   icon: { fontSize: 18 },
 });
-

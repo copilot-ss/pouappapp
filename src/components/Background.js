@@ -1,7 +1,7 @@
 import React from 'react';
 import { ImageBackground, StyleSheet, View } from 'react-native';
 
-export default function Background() {
+function Background() {
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <ImageBackground
@@ -12,4 +12,5 @@ export default function Background() {
     </View>
   );
 }
+export default React.memo(Background);
 

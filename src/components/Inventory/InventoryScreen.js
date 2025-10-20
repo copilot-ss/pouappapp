@@ -1,11 +1,11 @@
 ﻿import React from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, FlatList, StyleSheet } from 'react-native';
 import { SHOP_CATEGORIES } from '../../data/shopItems';
 import { listOwnedBy } from '../../state/economy';
 import OutfitPreview from '../OutfitPreview';
 import { EMPTY_EQUIPPED } from '../../lib/outfit';
 
-export default function InventoryScreen({
+function InventoryScreen({
   open,
   inventory = {},
   equipped = EMPTY_EQUIPPED,
@@ -23,10 +23,16 @@ export default function InventoryScreen({
 
   if (!open) return null;
 
-  const category = SHOP_CATEGORIES.find((c) => c.key === tab) || SHOP_CATEGORIES[0];
-  const itemsOwned = listOwnedBy(category?.items ?? [], inventory);
+  const category = React.useMemo(
+    () => SHOP_CATEGORIES.find((c) => c.key === tab) || SHOP_CATEGORIES[0],
+    [tab],
+  );
+  const itemsOwned = React.useMemo(
+    () => listOwnedBy(category?.items ?? [], inventory),
+    [category, inventory],
+  );
 
-  const handleToggle = (item) => {
+  const handleToggle = React.useCallback((item) => {
     if (!item) return;
     const slot = item.slot;
     if (equipped[slot] === item.id) {
@@ -34,11 +40,11 @@ export default function InventoryScreen({
     } else {
       onEquip && onEquip(slot, item.id);
     }
-  };
+  }, [equipped, onEquip, onUnequip]);
 
-  const handleUnequipSlot = (slot) => {
+  const handleUnequipSlot = React.useCallback((slot) => {
     onUnequip && onUnequip(slot);
-  };
+  }, [onUnequip]);
 
   return (
     <View style={styles.screen} pointerEvents="auto">
@@ -48,68 +54,74 @@ export default function InventoryScreen({
           <Text style={styles.closeX}>{String.fromCodePoint(0x2715)}</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.previewCard}>
-          <Text style={styles.previewTitle}>Aktueller Look</Text>
-          <OutfitPreview species={species} equipped={equipped} />
-        </View>
-
-        <View style={styles.tabs}>
-          {SHOP_CATEGORIES.map((c) => (
-            <Pressable
-              key={c.key}
-              onPress={() => setTab(c.key)}
-              style={[styles.tab, tab === c.key && styles.tabActive]}
-              hitSlop={6}
-            >
-              <Text style={[styles.tabText, tab === c.key && styles.tabTextActive]}>{c.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <View style={styles.grid}>
-          {itemsOwned.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Hier ist noch nichts. Schau im Shop vorbei!</Text>
+      <FlatList
+        contentContainerStyle={styles.scrollContent}
+        data={itemsOwned}
+        numColumns={2}
+        keyExtractor={(item) => String(item.id)}
+        columnWrapperStyle={{ gap: 12, paddingHorizontal: 16, paddingTop: 6 }}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        getItemLayout={(_, index) => ({ length: 170, offset: 170 * index, index })}
+        ListHeaderComponent={
+          <>
+            <View style={styles.previewCard}>
+              <Text style={styles.previewTitle}>Aktueller Look</Text>
+              <OutfitPreview species={species} equipped={equipped} />
             </View>
-          ) : (
-            itemsOwned.map((item) => {
-              const equippedNow = equipped[item.slot] === item.id;
-              const iconChar = Number.isInteger(item.icon) ? String.fromCodePoint(item.icon) : '?';
-              return (
+            <View style={styles.tabs}>
+              {SHOP_CATEGORIES.map((c) => (
                 <Pressable
-                  key={item.id}
-                  onPress={() => handleToggle(item)}
-                  hitSlop={8}
-                  style={[
-                    styles.itemCard,
-                    equippedNow && styles.itemCardEquipped,
-                  ]}
+                  key={c.key}
+                  onPress={() => setTab(c.key)}
+                  style={[styles.tab, tab === c.key && styles.tabActive]}
+                  hitSlop={6}
                 >
-                  <Text style={styles.itemIcon}>{iconChar}</Text>
-                  <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-                  {item.count > 1 ? (
-                    <View style={styles.itemMeta}>
-                      <Text style={styles.itemCount}>x{item.count}</Text>
-                    </View>
-                  ) : null}
+                  <Text style={[styles.tabText, tab === c.key && styles.tabTextActive]}>{c.label}</Text>
                 </Pressable>
-              );
-            })
-          )}
-        </View>
-
-        <View style={styles.slotActions}>
-          <Text style={styles.slotActionsLabel}>Schnell ablegen</Text>
-          <View style={styles.slotActionRow}>
-            {SHOP_CATEGORIES.map((cat) => (
-              <Pressable key={cat.key} style={styles.slotChip} onPress={() => handleUnequipSlot(cat.slot)} hitSlop={6}>
-                <Text style={styles.slotChipText}>{cat.label}</Text>
-              </Pressable>
-            ))}
+              ))}
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>Hier ist noch nichts. Schau im Shop vorbei!</Text>
           </View>
-        </View>
-      </ScrollView>
+        }
+        renderItem={({ item }) => {
+          const equippedNow = equipped[item.slot] === item.id;
+          const iconChar = Number.isInteger(item.icon) ? String.fromCodePoint(item.icon) : '?';
+          return (
+            <Pressable
+              onPress={() => handleToggle(item)}
+              hitSlop={8}
+              style={[styles.itemCard, equippedNow && styles.itemCardEquipped]}
+            >
+              <Text style={styles.itemIcon}>{iconChar}</Text>
+              <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
+              {item.count > 1 ? (
+                <View style={styles.itemMeta}>
+                  <Text style={styles.itemCount}>x{item.count}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        }}
+        ListFooterComponent={
+          <View style={styles.slotActions}>
+            <Text style={styles.slotActionsLabel}>Schnell ablegen</Text>
+            <View style={styles.slotActionRow}>
+              {SHOP_CATEGORIES.map((cat) => (
+                <Pressable key={cat.key} style={styles.slotChip} onPress={() => handleUnequipSlot(cat.slot)} hitSlop={6}>
+                  <Text style={styles.slotChipText}>{cat.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        }
+      />
     </View>
   );
 }
@@ -226,3 +238,5 @@ const styles = StyleSheet.create({
   },
   slotChipText: { color: '#0369A1', fontWeight: '600', fontSize: 12 },
 });
+
+export default React.memo(InventoryScreen);

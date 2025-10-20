@@ -8,7 +8,7 @@ const GAMES = [
   { key: 'casino', title: 'Glücksspiel', desc: 'Coinflip, Dice, Blackjack' },
 ];
 
-export default function GamesMenu({ open, onClose, onSelect }) {
+function GamesMenu({ open, onClose, onSelect }) {
   if (!open) return null;
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
@@ -34,6 +34,7 @@ export default function GamesMenu({ open, onClose, onSelect }) {
     </Modal>
   );
 }
+export default React.memo(GamesMenu);
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
