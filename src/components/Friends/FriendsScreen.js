@@ -3,8 +3,8 @@ import { View, Text, Pressable, ScrollView, StyleSheet, TextInput, ActivityIndic
 import OutfitPreview from '../OutfitPreview';
 import { getLevelInfo } from '../../lib/progression';
 import { getSpecies } from '../../domain/species';
-import { ensureAccount } from '../../state/account';
-import { addFriend, loadFriends, removeFriend } from '../../state/friends';
+import { ensureAccount } from '../../api/profile';
+import { addFriend, loadFriends, removeFriend } from '../../api/offlineFriends';
 import {
   cloudAvailable,
   getSession,
@@ -19,7 +19,7 @@ import {
   acceptGameInvite,
   declineGameInvite,
   subscribeToGameInvites,
-} from '../../state/cloudFriends';
+} from '../../api/cloudFriends';
 
 let Clipboard = null;
 try {
@@ -47,6 +47,7 @@ export default function FriendsScreen({
   onOpenProfile = () => {},
   selfSnapshot = null,
   onInviteTicTacToe = () => {},
+  onCancelTicTacToeInvite = () => {},
   onAcceptTicTacToeInvite = () => {},
   onDeclineTicTacToeInvite = () => {},
   ticTacToeStatusByFriend = {},
@@ -819,19 +820,28 @@ export default function FriendsScreen({
             <View style={styles.detailActions}>
               {selectedFriend?.kind === 'cloud' ? (
                 <>
-                  <Pressable
-                    style={[
-                      styles.gameInviteBtn,
-                      ticTacToeInviteState.disabled && styles.gameInviteBtnDisabled,
-                    ]}
-                    onPress={() => {
-                      if (ticTacToeInviteState.disabled) return;
-                      onInviteTicTacToe?.(selectedFriend);
-                    }}
-                    disabled={ticTacToeInviteState.disabled}
-                  >
-                    <Text style={styles.gameInviteBtnText}>{ticTacToeInviteState.label}</Text>
-                  </Pressable>
+                  {selectedFriendGameStatus === 'pending-outgoing' ? (
+                    <Pressable
+                      style={styles.gameInviteBtn}
+                      onPress={() => onCancelTicTacToeInvite?.(selectedFriend)}
+                    >
+                      <Text style={styles.gameInviteBtnText}>Anfrage abbrechen</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={[
+                        styles.gameInviteBtn,
+                        ticTacToeInviteState.disabled && styles.gameInviteBtnDisabled,
+                      ]}
+                      onPress={() => {
+                        if (ticTacToeInviteState.disabled) return;
+                        onInviteTicTacToe?.(selectedFriend);
+                      }}
+                      disabled={ticTacToeInviteState.disabled}
+                    >
+                      <Text style={styles.gameInviteBtnText}>{ticTacToeInviteState.label}</Text>
+                    </Pressable>
+                  )}
                   {ticTacToeInviteState.hint ? (
                     <Text style={styles.detailHint}>{ticTacToeInviteState.hint}</Text>
                   ) : null}

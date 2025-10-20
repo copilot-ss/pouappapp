@@ -49,6 +49,13 @@ const LOTTIE_VARIANTS = {
     base: () => require('../../assets/qualle_idle.json'),
     sleep: () => require('../../assets/qualle_idle.json'),
   },
+  krabbe: {
+    // Temporär auf Standardanimation, bis krabbe_idle.json vorhanden ist
+    idle: () => require('../../assets/pet_idle.json'),
+    happy: () => require('../../assets/pet_idle.json'),
+    base: () => require('../../assets/pet_idle.json'),
+    sleep: () => require('../../assets/pet_idle.json'),
+  },
 };
 
 
@@ -144,6 +151,7 @@ const styles = StyleSheet.create({
   heart: { position: 'absolute', top: AVATAR_SIZE / 2 - 30, fontSize: 26, color: '#EF4444' },
   zzz: { position: 'absolute', top: 28, right: 48, fontSize: 18, color: '#6B7280' },
 });
+
 
 
 

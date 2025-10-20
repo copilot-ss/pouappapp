@@ -88,6 +88,7 @@ export default function useGameController() {
   const [cloudSession, setCloudSession] = useState(null);
   const userId = cloudSession?.user?.id ?? null;
   const lastSeenTimerRef = useRef(null);
+  const ticTacToeRewardedRef = useRef(new Set());
 
   const cloudSyncReadyRef = useRef(false);
   const skipCloudPushRef = useRef(false);
@@ -203,6 +204,17 @@ export default function useGameController() {
       setTicTacToeOutgoing(outgoing);
       setTicTacToeIncoming(incoming);
       setTicTacToeMatch(match);
+      // Apply 30-coin transfer in polling path when a match finishes
+      if (match && match.status === 'finished' && match.id && !ticTacToeRewardedRef.current.has(match.id)) {
+        ticTacToeRewardedRef.current.add(match.id);
+        if (match.winner) {
+          if (match.winner === userId) {
+            setCoins((c) => c + 30);
+          } else {
+            setCoins((c) => Math.max(0, c - 30));
+          }
+        }
+      }
     },
     [userId],
   );
@@ -644,7 +656,7 @@ export default function useGameController() {
           equipped: friend.equipped || {},
           xp: friend.xp || 0,
         });
-        setFriendsOpen(false);
+        setFriendsOpen(false); setShopOpen(false); setInventoryOpen(false); setGameOpen(false);
         showToast(`Du besuchst ${friend.displayName || friend.name || 'deinen Freund'}!`);
       } catch (error) {
         console.warn('startFriendVisit failed', error);
@@ -775,6 +787,25 @@ export default function useGameController() {
       const eventType = payload?.eventType;
       const next = payload?.new;
       const prev = payload?.old;
+      // Fast-path UI updates to reduce perceived latency
+      if (next && (eventType === 'INSERT' || eventType === 'UPDATE')) {
+        const amParticipant = next.hostId === userId || next.opponentId === userId;
+        if (amParticipant) {
+          if (next.status === 'pending') {
+            if (next.opponentId === userId) {
+              setTicTacToeIncoming((curr) => (curr && curr.id === next.id ? curr : next));
+              setTicTacToeOutgoing((curr) => (curr && curr.id === next.id ? null : curr));
+            } else if (next.hostId === userId) {
+              setTicTacToeOutgoing((curr) => (curr && curr.id === next.id ? curr : next));
+            }
+          } else if (next.status === 'active') {
+            setTicTacToeIncoming((curr) => (curr && curr.id === next.id ? null : curr));
+            setTicTacToeOutgoing((curr) => (curr && curr.id === next.id ? null : curr));
+            setTicTacToeMatch(next);
+            setFriendsOpen(false); setShopOpen(false); setInventoryOpen(false); setGameOpen(false);
+          }
+        }
+      }
       if (eventType === 'UPDATE' && next) {
         if (next.status === 'declined' && next.hostId === userId) {
           showToast('Spielanfrage abgelehnt.');
@@ -788,6 +819,17 @@ export default function useGameController() {
           }
         } else if (next.status === 'finished') {
           dismissedGameIdsRef.current.delete(next.id);
+          // Apply 30-coin transfer winner<-loser (once per match)
+          if (!ticTacToeRewardedRef.current.has(next.id)) {
+            ticTacToeRewardedRef.current.add(next.id);
+            if (next.winner) {
+              if (next.winner === userId) {
+                setCoins((c) => c + 30);
+              } else {
+                setCoins((c) => Math.max(0, c - 30));
+              }
+            }
+          }
           if (next.winner) {
             showToast(next.winner === userId ? 'Du hast gewonnen!' : 'Spiel beendet.');
           } else {
@@ -800,9 +842,14 @@ export default function useGameController() {
       }
       syncInvites();
     });
+    // Polling fallback (faster while invites/match exist)
+    const poll = setInterval(() => {
+      syncInvites();
+    }, 250);
     return () => {
       cancelled = true;
       if (typeof unsubscribe === 'function') unsubscribe();
+      clearInterval(poll);
     };
   }, [applyGameInvites, showToast, userId]);
 
@@ -883,6 +930,7 @@ export default function useGameController() {
       dismissedGameIdsRef.current.delete(invite.id);
       setTicTacToeIncoming(null);
       setTicTacToeMatch(invite);
+      setFriendsOpen(false); setShopOpen(false); setInventoryOpen(false); setGameOpen(false);
       showToast('Spiel gestartet.');
     } catch (error) {
       if (__DEV__) console.warn('acceptGameInvite failed', error);
@@ -910,6 +958,16 @@ export default function useGameController() {
         setTicTacToeMatch(updated);
         if (updated.status === 'finished') {
           dismissedGameIdsRef.current.delete(updated.id);
+          if (!ticTacToeRewardedRef.current.has(updated.id)) {
+            ticTacToeRewardedRef.current.add(updated.id);
+            if (updated.winner) {
+              if (updated.winner === userId) {
+                setCoins((c) => c + 30);
+              } else {
+                setCoins((c) => Math.max(0, c - 30));
+              }
+            }
+          }
           if (updated.winner) {
             showToast(updated.winner === userId ? 'Du hast gewonnen!' : 'Du hast verloren.');
           } else {

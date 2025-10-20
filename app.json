@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "PouAppApp",
-    "slug": "PouAppApp",
-    "scheme": "pouappapp",
+    "name": "Bubbles",
+    "slug": "bubblesapp",
+    "scheme": "bubblesapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.simon.pouappapp"
+      "package": "com.simon.bubblesapp"
     },
     "extra": {
       "SUPABASE_URL": "",

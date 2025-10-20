@@ -1,8 +1,9 @@
 ﻿export const STORAGE_KEY = 'pou/state/v1';
 
-// Per-minute decay/recovery rates to keep gameplay calm
-export const DECAY_AWAKE = { hunger: 0.25, fun: 0.2, clean: 0.15, energy: 0.05 };
-export const DECAY_SLEEP = { hunger: 0.12, fun: 0.1, clean: 0.12, energy: -0.6 };
+// Per-minute decay/recovery rates
+// Tuned to be visibly decreasing while still feeling gradual
+export const DECAY_AWAKE = { hunger: 2.0, fun: 1.5, clean: 1.0, energy: 1.2 };
+export const DECAY_SLEEP = { hunger: 0.6, fun: 0.5, clean: 0.6, energy: -3.0 };
 
 export const WASH_ROWS = 4;
 export const WASH_COLS = 4;

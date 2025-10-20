@@ -419,7 +419,10 @@ export async function fetchOpenGameInvites() {
   return (data || []).map(normalizeGameInvite);
 }
 
-export async function sendGameInvite(opponentId, { gameType = 'tictactoe', hostName = null, opponentName = null } = {}) {
+export async function sendGameInvite(
+  opponentId,
+  { gameType = 'tictactoe', hostName = null, opponentName = null } = {},
+) {
   const session = await getSession();
   if (!session) throw new Error('not_authenticated');
   if (!opponentId) throw new Error('invalid_opponent');
@@ -432,14 +435,38 @@ export async function sendGameInvite(opponentId, { gameType = 'tictactoe', hostN
       .eq('opponent_id', opponentId)
       .eq('status', 'pending');
   } catch {}
+  // Ensure names are populated if not provided
+  let resolvedHostName = hostName;
+  try {
+    if (!resolvedHostName) {
+      const { data: me } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('user_id', hostId)
+        .maybeSingle();
+      resolvedHostName = me?.display_name || null;
+    }
+  } catch {}
+  let resolvedOpponentName = opponentName;
+  try {
+    if (!resolvedOpponentName) {
+      const { data: opp } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('user_id', opponentId)
+        .maybeSingle();
+      resolvedOpponentName = opp?.display_name || null;
+    }
+  } catch {}
+
   const payload = {
     host_id: hostId,
     opponent_id: opponentId,
     game_type: gameType,
     status: 'pending',
     board: [],
-    host_name: hostName,
-    opponent_name: opponentName,
+    host_name: resolvedHostName,
+    opponent_name: resolvedOpponentName,
   };
   const { data, error } = await supabase
     .from('friend_game_invites')
